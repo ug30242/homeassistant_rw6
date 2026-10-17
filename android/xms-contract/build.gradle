@@ -1,0 +1,12 @@
+plugins { id 'com.android.library' }
+android {
+    namespace 'com.xiaomi.xms.wearable'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+    defaultConfig { minSdk 26 }
+    buildFeatures { aidl true }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

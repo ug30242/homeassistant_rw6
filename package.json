@@ -1,0 +1,23 @@
+{
+  "name": "com.vela.rw6ha",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Direct Home Assistant control for Redmi Watch 6, with foreground-only Android configuration sync",
+  "scripts": {
+    "start": "aiot start",
+    "build": "aiot build",
+    "release": "aiot release",
+    "test": "node --test --test-isolation=none tests/*.test.mjs",
+    "verify:rpk": "node scripts/verify-rpk.cjs",
+    "verify:apk": "node scripts/verify-apk.cjs",
+    "smoke:rpk": "node scripts/smoke-rpk.cjs",
+    "test:interop": "node scripts/test-interop.mjs"
+  },
+  "devDependencies": {
+    "aiot-toolkit": "2.0.5",
+    "jszip": "3.10.1"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  }
+}

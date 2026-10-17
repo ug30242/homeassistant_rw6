@@ -1,0 +1,36 @@
+plugins { id 'com.android.application' }
+def projectVersion = new groovy.json.JsonSlurper().parse(file('../../package.json')).version
+def watchManifest = new groovy.json.JsonSlurper().parse(file('../../src/manifest.json'))
+android {
+    namespace 'com.vela.rw6ha'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+    defaultConfig {
+        applicationId 'com.vela.rw6ha'
+        minSdk 26
+        targetSdk 35
+        versionCode watchManifest.versionCode
+        versionName projectVersion
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildTypes { release { minifyEnabled false } }
+    testOptions {
+        unitTests.includeAndroidResources = true
+        unitTests.all {
+            systemProperty 'rw6.interop.output', layout.buildDirectory.file('interop/phone-packet.json').get().asFile.absolutePath
+            systemProperty 'robolectric.dependency.repo.url', 'https://repo.maven.apache.org/maven2'
+            ['https.proxyHost','https.proxyPort','http.proxyHost','http.proxyPort'].each { key ->
+                if (System.getProperty(key)) systemProperty key, System.getProperty(key)
+            }
+        }
+    }
+}
+dependencies {
+    implementation project(':xms-contract')
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+}

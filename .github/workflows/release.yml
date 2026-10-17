@@ -1,0 +1,74 @@
+name: Publish verified release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag
+        required: true
+        default: v0.1.0
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Rebuild Android and run native regressions
+        run: ./gradlew --no-daemon :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease
+        working-directory: android
+      - run: npm run test:interop
+      - name: Rebuild watch and exercise compiled screens
+        run: |
+          npm run build
+          npm run verify:rpk -- dist/*.debug.*.rpk
+          npm run smoke:rpk -- dist/*.debug.*.rpk
+      - name: Verify exact signed release payload
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "v$(node -p 'require("./package.json").version')" = "$RELEASE_TAG"
+          npm run verify:rpk -- "releases/$RELEASE_TAG/"*.rpk
+          npm run smoke:rpk -- "releases/$RELEASE_TAG/"*.rpk
+          npm run verify:apk -- "releases/$RELEASE_TAG/"*.apk
+          cd "releases/$RELEASE_TAG"
+          sha256sum -c SHA256SUMS
+      - name: Publish exact verified artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'Existing release preserved.'
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" "releases/$RELEASE_TAG/"*.apk "releases/$RELEASE_TAG/"*.rpk \
+            "releases/$RELEASE_TAG/SHA256SUMS" "releases/$RELEASE_TAG/THIRD_PARTY_NOTICES.txt" \
+            --verify-tag --prerelease --title "Redmi Watch 6 Home Assistant $RELEASE_TAG" \
+            --notes-file "releases/$RELEASE_TAG/NOTES.md"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: release-validation-reports
+          path: android/app/build/reports/

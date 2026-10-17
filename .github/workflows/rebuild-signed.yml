@@ -1,0 +1,46 @@
+name: Rebuild signed packages from Secrets
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  signed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - run: npm ci
+      - run: npm test
+      - run: ./gradlew --no-daemon :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease
+        working-directory: android
+      - run: npm run test:interop
+      - name: Load protected signing identity
+        run: node scripts/load-signing.cjs
+        env:
+          HA_RELEASE_PRIVATE_KEY_PEM: ${{ secrets.HA_RELEASE_PRIVATE_KEY_PEM }}
+          HA_RELEASE_CERTIFICATE_PEM: ${{ secrets.HA_RELEASE_CERTIFICATE_PEM }}
+      - run: npm run release
+      - run: bash scripts/sign-apk.sh
+      - run: npm run verify:rpk -- dist/*.release.*.rpk
+      - run: npm run smoke:rpk -- dist/*.release.*.rpk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-installable-pair
+          path: |
+            dist/*.release.*.rpk
+            dist/*.apk
+          if-no-files-found: error
+      - name: Remove private signing files
+        if: always()
+        run: rm -rf sign/release

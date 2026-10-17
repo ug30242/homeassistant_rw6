@@ -1,0 +1,42 @@
+<template>
+  <div class="page"><div class="row"><text class="title">Network / Info</text><input class="back" type="button" value="Back" onclick="back" /></div>
+    <text class="info">{{ info }}</text><text class="status">{{ status }}</text>
+    <input class="button" type="button" value="Test GET /api/ + entity" onclick="testGet" />
+    <input class="button" type="button" value="Test POST: update entity" onclick="testPost" />
+    <text class="hint">POST refreshes the first entity.</text>
+    <input class="erase" type="button" value="{{ confirm ? 'Confirm erase credentials' : 'Erase watch credentials' }}" onclick="erase" />
+  </div>
+</template>
+<script>
+import router from '@system.router';
+import {store,client} from '../../common/runtime';
+export default {
+  private:{info:'Loading...',status:'Hardware network test required.',confirm:false},
+  onShow(){this.stop();this._visible=true;this.confirm=false;this.load(this._epoch);},
+  async load(epoch){try{const r=await store.read();if(!this._visible||epoch!==this._epoch)return;this._config=r&&!r.config.cleared?r.config:null;this.info=this._config?'Revision '+this._config.revision+' | '+this._config.entities.length+' entities | '+(this._config.allowInsecure?'HTTP allowed':'HTTPS only'):'No configuration. Open Phone sync.';}catch(_){if(this._visible&&epoch===this._epoch)this.info='Storage error. Erase and resync.';}},
+  async probe(post){
+    if(this._busy||!this._config)return;this._busy=true;const epoch=this._epoch;this.confirm=false;this._client=client(this._config);this.status='Testing watch fetch...';
+    try{
+      await this._client.ping();const first=this._config.entities[0];
+      if(post){if(!first)throw new Error('Select an entity on Android first.');await this._client.service('homeassistant','update_entity',first.id);}
+      if(first)await this._client.state(first.id);
+      if(this._visible&&epoch===this._epoch)this.status=(post?'POST and GET':'GET /api/ and '+(first?'entity':'server'))+' passed on this watch. Close Android and repeat.';
+    }catch(error){if(this._visible&&epoch===this._epoch)this.status=error.message;}
+    finally{if(epoch===this._epoch){this._busy=false;if(this._client)this._client.close();this._client=null;}}
+  },
+  testGet(){this.probe(false);},testPost(){this.probe(true);},
+  async erase(){if(this._busy)return;if(!this.confirm){this.confirm=true;this.status='Tap erase again to delete both stored copies.';return;}this._busy=true;const epoch=this._epoch;try{await store.clear();if(this._visible&&epoch===this._epoch){this._config=null;this.info='No stored credentials.';this.status='Erased. Revoke token in Home Assistant if needed.';this.confirm=false;}}catch(_){if(this._visible&&epoch===this._epoch)this.status='Erase failed. Retry.';}finally{if(epoch===this._epoch)this._busy=false;}},
+  stop(){this._visible=false;this._epoch=(this._epoch||0)+1;this._busy=false;if(this._client)this._client.close();this._client=null;},onHide(){this.stop();},onDestroy(){this.stop();},back(){router.back();}
+};
+</script>
+<style>
+.page { width:432px; height:514px; padding:18px 20px; flex-direction:column; background-color:#090f19; }
+.row { width:392px; height:54px; flex-direction:row; justify-content:space-between; align-items:center; }
+.title { font-size:27px; color:#f8fafc; }
+.back { width:80px; height:50px; border-radius:16px; font-size:21px; background-color:#243247; color:#f8fafc; }
+.info { width:392px; height:74px; color:#94a3b8; font-size:21px; }
+.status { width:392px; height:108px; color:#7dd3fc; font-size:22px; }
+.button { width:392px; height:58px; margin-bottom:10px; border-radius:18px; background-color:#075985; color:#f8fafc; font-size:22px; }
+.hint { width:392px; height:40px; color:#94a3b8; font-size:20px; }
+.erase { width:392px; height:58px; border-radius:18px; background-color:#7f1d1d; color:#f8fafc; font-size:22px; }
+</style>

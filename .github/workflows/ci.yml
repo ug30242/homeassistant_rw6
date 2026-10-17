@@ -1,0 +1,50 @@
+name: Build and validate APK and RPK
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm run verify:rpk -- dist/*.debug.*.rpk
+      - run: npm run smoke:rpk -- dist/*.debug.*.rpk
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - run: ./gradlew --no-daemon :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease
+        working-directory: android
+      - run: npm run test:interop
+      - name: Verify published installable pair
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          npm run verify:rpk -- "releases/v$version/"*.rpk
+          npm run smoke:rpk -- "releases/v$version/"*.rpk
+          npm run verify:apk -- "releases/v$version/"*.apk
+          cd "releases/v$version"
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-and-test-results
+          path: |
+            android/app/build/reports/
+            android/app/build/outputs/apk/release/app-release-unsigned.apk
+            dist/*.debug.*.rpk
+          retention-days: 7

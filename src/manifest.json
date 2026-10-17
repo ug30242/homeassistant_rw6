@@ -1,0 +1,51 @@
+{
+  "package": "com.vela.rw6ha",
+  "name": "HA Control",
+  "icon": "/common/icon.png",
+  "versionName": "0.1.0",
+  "versionCode": 1,
+  "minAPILevel": 2,
+  "deviceTypeList": [
+    "watch"
+  ],
+  "features": [
+    {
+      "name": "system.storage"
+    },
+    {
+      "name": "system.router"
+    },
+    {
+      "name": "system.fetch"
+    },
+    {
+      "name": "system.interconnect"
+    }
+  ],
+  "config": {
+    "logLevel": "error",
+    "designWidth": 432
+  },
+  "router": {
+    "entry": "pages/index",
+    "pages": {
+      "pages/index": {
+        "component": "index",
+        "path": "/index"
+      },
+      "pages/detail": {
+        "component": "index"
+      },
+      "pages/receive": {
+        "component": "index",
+        "path": "/receive"
+      },
+      "pages/settings": {
+        "component": "index"
+      }
+    }
+  },
+  "display": {
+    "backgroundColor": "#090f19"
+  }
+}

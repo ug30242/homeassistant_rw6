@@ -1,0 +1,13 @@
+node_modules/
+dist/
+build/
+android/.gradle/
+android/**/build/
+android/local.properties
+sign/
+*.jks
+*.keystore
+*.p12
+*.key
+private.pem
+.DS_Store

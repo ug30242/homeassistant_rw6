@@ -1,0 +1,69 @@
+# 개발·서명·배포
+
+## 구조와 제한
+
+- `android/app`: 설정 모델, Keystore vault, foreground HaApi, XMS Binder client, ACK 동기화 세션, 한국어 native UI.
+- `android/xms-contract`: 원본 공개 AIDL/Parcelable 계약. MIT 고지 보존.
+- `src/common/ha-client.js`: 워치 fetch, 12초 타임아웃, HTTP 분류, 안전한 오류, 요청별 결과, close 시 미완료 Promise 취소. Android 호출 경로 없음.
+- `entities.js`: 지원 기능 기반 서비스 매핑. 센서는 read-only. POST 이후 최대 3번 상태 확인, 700ms 간격. 비동기 장면/스크립트는 실행 시각 변경 증거가 없으면 미확인 표시. 시계 차이도 미확인 원인이 될 수 있음.
+- `sync-receiver.js`: `ha-hello/ready`, `ha-begin/chunk/commit`, `ha-ack`, protocol 1, 128비트 랜덤 요청 ID·transfer ID, 최대 메시지 2048바이트, 768바이트 청크(Base64 1024자), 최대 64개 청크/48 KiB, 90초 수신 유휴 만료. CRC32는 손상 검사이며 암호학적 인증이 아님.
+- Android는 같은 요청 ID로 최대 3번 전송, 단계별 5초/commit 15초 제한. hello는 1초 간격 최대 15번이며 준비 응답 전에는 토큰을 보내지 않음. XMS 연결 준비 제한은 30초.
+- `config-store.js`: inactive 슬롯 set → 동일 데이터 get 확인 → active 인덱스 set/get 확인 후 ACK. 정상 active가 있으면 staging은 채택하지 않음. active 손상 시 이전 슬롯 복원. 실제 전원 장애 원자성은 native storage 구현에 의존하므로 실기기 검증 필요.
+- revision은 Android 현재 밀리초 또는 이전 값+1 중 큰 값. 낮은 버전/같은 버전 다른 내용 거부. 같은 버전·같은 checksum은 ACK 유실 후 새 세션으로 재시도 가능. 설정은 전체 교체이므로 삭제가 반영됨.
+- 자격 증명은 Android no-backup 파일에서 AES-256-GCM으로 보호. 워치는 일반 storage 두 슬롯에 저장. 삭제는 두 슬롯과 인덱스를 비우지만 물리적 플래시 복구 불가를 보장하지 않음.
+- 확장 도메인은 Android `Config.DOMAINS`, 워치 `config.js`의 DOMAINS와 `entities.js` 명령·검증을 함께 추가. climate/number/select/input_boolean은 이번 버전에서 미지원.
+
+## 일반 빌드
+
+Node 24, JDK 21, SDK platform android-35와 Build-Tools 35.0.0이 필요합니다. Gradle 8.13 wrapper는 SHA256으로 배포본을 검증합니다.
+
+```sh
+npm ci
+npm test
+npm run build
+npm run verify:rpk -- dist/com.vela.rw6ha.debug.0.1.0.rpk
+npm run smoke:rpk -- dist/com.vela.rw6ha.debug.0.1.0.rpk
+cd android
+./gradlew --no-daemon :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease
+cd ..
+npm run test:interop
+```
+
+Android 결과: `android/app/build/outputs/apk/release/app-release-unsigned.apk`. 테스트 보고서: `android/app/build/reports/`. RPK debug는 toolkit 기본 개발 키이므로 릴리즈 APK와 섞어 설치하지 마세요.
+
+클라우드 전용 도구 준비는 `python3 scripts/setup-cloud-android.py`입니다. `/workspace/tools`, `/workspace/android-sdk`에 SHA256 검증된 SDK/JDK를 놓습니다. 지정한 전용 Gradle home의 proxy만 설정하며 애플리케이션의 인증서 검증을 바꾸지 않습니다. 해당 환경에서 JDK truststore는 정상 시스템 CA store를 사용해야 합니다. 네트워크 정책을 우회하거나 TLS 검증을 끄지 마세요.
+
+## 릴리즈 서명
+
+새 HA 서명 키는 `sign/release/private.pem`, 인증서는 `sign/release/certificate.pem`입니다. 해당 디렉터리는 gitignore되며 **개인키는 소스·릴리즈·Actions 아티팩트에 넣지 않습니다.** 공개 인증서만 `certificates/release.pem`에 커밋합니다.
+
+초기 v0.1.0에서 생성한 새 키를 이후에도 보존해야 Android 업데이트와 XMS 호환이 유지됩니다. **작업 공간이 사라지기 전에 이 두 파일을 안전한 키 저장소에 백업하고, 필요하면 아래 GitHub Secrets로 등록하세요.** 기존 TOTP 키로 덮어쓰지 마세요. 키를 잃으면 현재 설치에 대한 정상 업데이트 서명을 복원할 수 없습니다.
+
+로컬에서 기존 HA 키를 복원한 뒤:
+
+```sh
+npm run release
+bash scripts/sign-apk.sh
+npm run verify:rpk -- dist/com.vela.rw6ha.release.0.1.0.rpk
+npm run smoke:rpk -- dist/com.vela.rw6ha.release.0.1.0.rpk
+npm run verify:apk -- dist/rw6-ha-android-0.1.0.apk
+```
+
+`ANDROID_HOME` 또는 `ANDROID_SDK_ROOT`를 설정하세요. `sign-apk.sh`는 동일 PEM 인증서를 임시 PKCS12로 변환하여 zipalign과 apksigner v2/v3 서명 후 검증합니다. 임시 비밀번호·PKCS12는 작업 종료 시 제거합니다.
+
+## GitHub Actions
+
+- `ci.yml`: main push/PR에서 JS 테스트, RPK 자동 빌드·컴파일 코드 smoke, Android APK 자동 빌드·테스트·Lint, Java/워치 interop, 배포 파일의 서명·체크섬 검사. 업로드되는 unsigned APK/debug RPK는 개발 검증용입니다.
+- `release.yml`: 버전 태그 push 시 두 앱을 빌드·테스트하고, `releases/<tag>`의 사전 서명된 정확한 APK/RPK와 SHA256을 검증한 뒤 GitHub Release로 게시. 기존 릴리즈는 덮어쓰지 않음. 최초 릴리즈는 하드웨어 미검증 사전 릴리즈로 표시.
+- `rebuild-signed.yml`: 수동 실행으로 GitHub Secrets에서 같은 키를 읽어 APK/RPK를 자동 재서명하고 installable pair 아티팩트를 생성. 개인키는 업로드되지 않으며 마지막 단계에서 삭제.
+
+Secrets 이름:
+
+| 이름 | 값 |
+| --- | --- |
+| `HA_RELEASE_PRIVATE_KEY_PEM` | 새 HA `sign/release/private.pem` 전체 PEM |
+| `HA_RELEASE_CERTIFICATE_PEM` | 같은 `sign/release/certificate.pem` 전체 PEM |
+
+이 세션에서는 Secrets 쓰기 기능을 사용할 수 없어 자동 등록하지 않았습니다. **초기 릴리즈는 로컬에서 서명한 설치 파일로 게시할 수 있으며 Secrets가 없어도 CI·릴리즈 검증과 배포가 가능합니다.** 향후 클라우드 재서명에는 Secrets 등록이 필요합니다. `load-signing.cjs`는 Secrets 인증서와 커밋된 공개 인증서, 개인키의 공개키가 일치하는지 검사합니다.
+
+버전 변경 시 `package.json` version과 `src/manifest.json` versionName/versionCode를 함께 갱신하고, 같은 소스에서 새 쌍을 빌드·검증한 뒤 `releases/vX.Y.Z`에 설치 파일·NOTES·THIRD_PARTY_NOTICES·SHA256SUMS를 커밋합니다. main push 후 같은 커밋에 `vX.Y.Z` 태그를 push하면 릴리즈 워크플로가 동작합니다. 개인키나 실제 Home Assistant 토큰을 커밋하지 마세요.

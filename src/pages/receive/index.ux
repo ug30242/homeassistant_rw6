@@ -1,0 +1,31 @@
+<template>
+  <div class="page"><div class="row"><text class="title">Phone sync</text><input class="back" type="button" value="Back" onclick="back" /></div>
+    <text class="connection">{{ connection }}</text>
+    <text class="hint">Open RW6 Home Assistant.</text><text class="hint">Keep Mi Fitness connected.</text><text class="hint">Tap Sync on Android.</text>
+    <text class="warning">Token is stored on this watch.</text>
+    <text class="status">{{ status }}</text><input class="button" type="button" value="Check connection" onclick="check" />
+  </div>
+</template>
+<script>
+import router from '@system.router';
+import interconnect from '@system.interconnect';
+import {store} from '../../common/runtime';
+import {openPhoneChannel} from '../../common/phone-channel';
+export default {
+  private:{connection:'Checking...',status:'Waiting for phone.'},
+  onShow(){this.stop();try{this._channel=openPhoneChannel(interconnect.instance(),{store,update:text=>{this.status=text;},connection:text=>{this.connection=text;}});this.check();}catch(_){this.connection='XMS unavailable.';}},
+  check(){if(this._channel)this._channel.check();},
+  stop(){if(this._channel)this._channel.close();this._channel=null;},onHide(){this.stop();},onDestroy(){this.stop();},back(){if(this._channel&&this._channel.isSaving()){this.status='Saving. Please wait.';return;}router.back();}
+};
+</script>
+<style>
+.page { width:432px; height:514px; padding:20px; flex-direction:column; background-color:#090f19; }
+.row { width:392px; height:54px; flex-direction:row; justify-content:space-between; align-items:center; }
+.title { font-size:30px; color:#f8fafc; }
+.back { width:86px; height:50px; border-radius:16px; background-color:#243247; color:#f8fafc; font-size:21px; }
+.connection { width:392px; height:72px; color:#38bdf8; font-size:23px; }
+.hint { width:392px; height:42px; font-size:24px; color:#cbd5e1; }
+.warning { width:392px; height:60px; font-size:21px; color:#fbbf24; }
+.status { width:392px; height:94px; font-size:23px; color:#7dd3fc; }
+.button { width:392px; height:60px; border-radius:20px; background-color:#075985; color:#f8fafc; font-size:24px; }
+</style>
