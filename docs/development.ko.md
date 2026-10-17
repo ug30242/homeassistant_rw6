@@ -3,6 +3,7 @@
 ## 구조와 제한
 
 - `android/app`: 설정 모델, Keystore vault, foreground HaApi, XMS Binder client, ACK 동기화 세션, 한국어 native UI.
+- `EntityCatalog`: `/api/states`를 JsonReader로 순차 파싱하고 ID·이름·도메인만 보관. 상태·추가 속성은 skip. gzip을 풀어 최대 128 MiB/50,000개까지 처리하고, 대량 조회 읽기 타임아웃 30초·전체 읽기 제한 90초 적용. 단건 연결 테스트는 기존 2 MiB/12초 제한 유지. 전체 조회가 실패하면 기존 목록을 유지. 화면은 7개 도메인 중 하나만 펼치고 50개씩 탐색하며 전체 검색·선택 상태를 보존.
 - `android/xms-contract`: 원본 공개 AIDL/Parcelable 계약. MIT 고지 보존.
 - `src/common/ha-client.js`: 워치 fetch, 12초 타임아웃, HTTP 분류, 안전한 오류, 요청별 결과, close 시 미완료 Promise 취소. Android 호출 경로 없음.
 - `entities.js`: 지원 기능 기반 서비스 매핑. 센서는 read-only. POST 이후 최대 3번 상태 확인, 700ms 간격. 비동기 장면/스크립트는 실행 시각 변경 증거가 없으면 미확인 표시. 시계 차이도 미확인 원인이 될 수 있음.
@@ -21,8 +22,8 @@ Node 24, JDK 21, SDK platform android-35와 Build-Tools 35.0.0이 필요합니�
 npm ci
 npm test
 npm run build
-npm run verify:rpk -- dist/com.vela.rw6ha.debug.0.1.0.rpk
-npm run smoke:rpk -- dist/com.vela.rw6ha.debug.0.1.0.rpk
+npm run verify:rpk -- dist/com.vela.rw6ha.debug.0.1.1.rpk
+npm run smoke:rpk -- dist/com.vela.rw6ha.debug.0.1.1.rpk
 cd android
 ./gradlew --no-daemon :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease
 cd ..
@@ -44,9 +45,9 @@ Android 결과: `android/app/build/outputs/apk/release/app-release-unsigned.apk`
 ```sh
 npm run release
 bash scripts/sign-apk.sh
-npm run verify:rpk -- dist/com.vela.rw6ha.release.0.1.0.rpk
-npm run smoke:rpk -- dist/com.vela.rw6ha.release.0.1.0.rpk
-npm run verify:apk -- dist/rw6-ha-android-0.1.0.apk
+npm run verify:rpk -- dist/com.vela.rw6ha.release.0.1.1.rpk
+npm run smoke:rpk -- dist/com.vela.rw6ha.release.0.1.1.rpk
+npm run verify:apk -- dist/rw6-ha-android-0.1.1.apk
 ```
 
 `ANDROID_HOME` 또는 `ANDROID_SDK_ROOT`를 설정하세요. `sign-apk.sh`는 동일 PEM 인증서를 임시 PKCS12로 변환하여 zipalign과 apksigner v2/v3 서명 후 검증합니다. 임시 비밀번호·PKCS12는 작업 종료 시 제거합니다.

@@ -1,6 +1,6 @@
 {
   "name": "com.vela.rw6ha",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Direct Home Assistant control for Redmi Watch 6, with foreground-only Android configuration sync",
   "scripts": {
