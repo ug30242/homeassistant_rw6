@@ -75,4 +75,4 @@ Secrets 등록 후에도 복구를 위한 별도의 안전한 키 백업을 보�
 
 버전 변경 시 `package.json`·`package-lock.json` version과 `src/manifest.json` versionName/versionCode를 함께 갱신하고, 같은 소스에서 새 쌍을 빌드·검증한 뒤 `releases/vX.Y.Z`에 설치 파일·NOTES·THIRD_PARTY_NOTICES·SHA256SUMS를 커밋합니다. GitHub Secrets로 CI에서 서명할 때는 NOTES.md만 커밋하고 설치 파일 생성·검증은 태그 릴리즈 워크플로에서 수행할 수 있습니다. main push 후 같은 커밋에 `vX.Y.Z` 태그를 push하면 릴리즈 워크플로가 동작합니다. 개인키나 실제 Home Assistant 토큰을 커밋하지 마세요.
 
-기존 태그를 다시 게시하려면 `releases/vX.Y.Z/PUBLISH`에 해당 태그의 전체 커밋 SHA를 기록해 main에 푸시할 수 있습니다. 현재 package.json 버전의 PUBLISH 변경만 사용하며, 워크플로는 SHA 일치를 검증한 뒤 그 태그의 소스를 체크아웃해 빌드합니다. 기존 태그나 게시된 릴리즈는 덮어쓰지 않습니다. 수동 Run workflow와 태그 push도 계속 지원합니다.
+기존 태그를 다시 게시하려면 `releases/vX.Y.Z/PUBLISH`의 첫 줄에 해당 태그의 전체 커밋 SHA를 기록해 main에 푸시할 수 있습니다. 현재 package.json 버전의 PUBLISH 변경만 사용하며, 워크플로는 SHA 일치를 검증한 뒤 그 태그의 소스를 체크아웃해 빌드합니다. 추가 줄에 재시도 사유를 기록해 다시 요청할 수 있습니다. 기존 태그나 게시된 릴리즈는 덮어쓰지 않습니다. 수동 Run workflow와 태그 push도 계속 지원합니다.

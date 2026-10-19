@@ -34,7 +34,7 @@ jobs:
             release_tag="${PUSH_REF#refs/tags/}"
           else
             release_tag="v$(node -p 'require("./package.json").version')"
-            expected_commit=$(cat "releases/$release_tag/PUBLISH")
+            IFS= read -r expected_commit < "releases/$release_tag/PUBLISH"
             [[ "$expected_commit" =~ ^[0-9a-f]{40}$ ]]
           fi
           [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
@@ -46,29 +46,6 @@ jobs:
           git checkout --detach "$actual_commit"
           test "v$(node -p 'require("./package.json").version')" = "$release_tag"
           echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - run: npm test
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: ''
-      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
-      - name: Rebuild Android and run native regressions
-        run: ./gradlew --no-daemon :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease
-        working-directory: android
-      - run: npm run test:interop
-      - name: Rebuild watch and exercise compiled screens
-        run: |
-          npm run build
-          npm run verify:rpk -- dist/*.debug.*.rpk
-          npm run smoke:rpk -- dist/*.debug.*.rpk
       - name: Select signed payload source
         id: payload
         env:
@@ -92,6 +69,44 @@ jobs:
         env:
           HA_RELEASE_PRIVATE_KEY_PEM: ${{ secrets.HA_RELEASE_PRIVATE_KEY_PEM }}
           HA_RELEASE_CERTIFICATE_PEM: ${{ secrets.HA_RELEASE_CERTIFICATE_PEM }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Rebuild Android and run native regressions
+        run: |
+          set -o pipefail
+          if ./gradlew --no-daemon :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease 2>&1 | tee "$RUNNER_TEMP/rw6-android-build.log"; then
+            exit 0
+          else
+            build_status=$?
+            python3 - <<'PYLOG'
+          import os
+          from pathlib import Path
+          lines = Path(os.environ['RUNNER_TEMP'], 'rw6-android-build.log').read_text(errors='replace').splitlines()
+          message = '\n'.join(lines[-70:])
+          message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=Android release build failed::' + message)
+          PYLOG
+            exit "$build_status"
+          fi
+        working-directory: android
+      - run: npm run test:interop
+      - name: Rebuild watch and exercise compiled screens
+        run: |
+          npm run build
+          npm run verify:rpk -- dist/*.debug.*.rpk
+          npm run smoke:rpk -- dist/*.debug.*.rpk
       - name: Build and stage signed installable pair
         if: steps.payload.outputs.prebuilt == 'false'
         env:
