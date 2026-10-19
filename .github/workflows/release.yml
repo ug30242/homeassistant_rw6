@@ -88,6 +88,16 @@ jobs:
           npm run verify:apk -- "releases/$RELEASE_TAG/"*.apk
           cd "releases/$RELEASE_TAG"
           sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          path: |
+            releases/${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}/*.apk
+            releases/${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}/*.rpk
+            releases/${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}/SHA256SUMS
+            releases/${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}/THIRD_PARTY_NOTICES.txt
+            releases/${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}/NOTES.md
+          if-no-files-found: error
       - name: Publish exact verified artifacts
         env:
           GH_TOKEN: ${{ github.token }}

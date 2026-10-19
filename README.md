@@ -51,6 +51,6 @@ cd ..
 npm run test:interop
 ```
 
-빌드·서명·GitHub Secrets·자동 릴리즈 운영은 [개발 가이드](docs/development.ko.md)에 있습니다. 서명되지 않은 CI APK와 개발용 RPK는 릴리즈 설치 파일의 대체물이 아닙니다.
+신규 버전의 서명된 설치 파일이 없으면 GitHub Secrets로 Actions에서 태그 소스를 직접 빌드·서명해 릴리즈합니다. APK/RPK를 로컬에서 만들거나 소스에 커밋할 필요가 없습니다. 빌드·서명·GitHub Secrets·자동 릴리즈 운영은 [개발 가이드](docs/development.ko.md)에 있습니다. 서명되지 않은 CI APK와 개발용 RPK는 릴리즈 설치 파일의 대체물이 아닙니다.
 
 XMS·저장소·RPK 검증 코드의 출처와 실제 검증 범위: [TOTP 분석 기록](docs/reference-analysis.ko.md), [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
