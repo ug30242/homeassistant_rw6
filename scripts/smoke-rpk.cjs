@@ -49,6 +49,43 @@ async function smokeRpk(file){
       // Exercise compiled event binding, including the service string argument.
       const on=visible.find(n=>n.tag==='input'&&(typeof n.opts.value==='function'?n.opts.value():n.opts.value)==='ON');assert(on);on.opts.events.click({});await flush();
       assert.equal(light,'on');assert.equal(page.status,'State confirmed.');assert(requests.some(r=>r.method==='POST'));
+      if(page._cache){
+        // Returning from a page and switching filters reuse recent snapshots.
+        const count=requests.length;page.onHide();page.onShow();await flush();assert.equal(requests.length,count);
+        page.cycleFilter();await flush();assert.equal(requests.length,count);
+        // A slow background refresh must allow controls. Its older response must
+        // never overwrite the control's confirmed value or message.
+        hold=true;const refreshing=page.refresh();assert.equal(held.length,2);
+        assert(page.items[0].canPower);hold=false;page._lastTap=0;await page.power(0,'turn_off');
+        assert.equal(light,'off');assert.equal(page.status,'State confirmed.');
+        for(const request of held.splice(0)){
+          const id=decodeURIComponent(request.url.split('/').at(-1));
+          request.success({code:200,data:JSON.stringify({entity_id:id,state:'on',attributes:{}})});
+        }
+        await refreshing;await flush();assert(page.items[0].state.startsWith('off'));assert.equal(page.status,'State confirmed.');
+        assert(page.items[0].checked.startsWith('Checked '));
+        // Failed requests retain values and mark them stale.
+        hold=true;const failing=page.refresh();for(const request of held.splice(0))request.fail();
+        await failing;assert(page.items[0].state.startsWith('STALE | off'));assert(!page.items[0].canPower);hold=false;
+        await page.refresh();assert(page.items[0].canPower);
+        // Separately compiled pages must use the same session cache.
+        page.onHide();light='on';
+        const detailExports={};evaluate(await zip.file('pages/detail/index.js').async('string'),'detail-cache-test.js')(context,context,context,detailExports,{});
+        const detailResult={};detailExports.entry(detailResult);
+        const detail=Object.assign({},detailResult.default,detailResult.default.data,{entityId:'light.living_room'});
+        detail.onShow();await flush();assert.equal(detail.value.trim(),'on');detail.onHide();detail.onDestroy();
+        const afterDetail=requests.length;page.onShow();await flush();assert.equal(requests.length,afterDetail);assert(page.items[0].state.startsWith('on'));
+        const beforePoll=requests.length;scheduled.get(page._poll)();await flush();assert.equal(requests.length,beforePoll+2,'periodic refresh must not skip a tick because of cache TTL');
+        // A filter changed during a slow refresh must load newly shown entities.
+        hold=true;const oldFilter=page.refresh();
+        page._config.entities.push({id:'switch.desk',domain:'switch',name:'Desk',icon:'switch',group:'Home',favorite:false,order:2});
+        page.filter=0;page.cycleFilter();assert.equal(page.items.length,3);
+        hold=false;for(const request of held.splice(0)){
+          const id=decodeURIComponent(request.url.split('/').at(-1));request.success({code:200,data:JSON.stringify({entity_id:id,state:'on',attributes:{}})});
+        }
+        await oldFilter;await flush();assert(page.items[2].state.startsWith('on'));assert(requests.at(-1).url.endsWith('/switch.desk'));
+        page._config.entities.pop();page.filter=0;page.render();
+      }
       page.detail(0);assert.equal(navigation.at(-1).params.entityId,'light.living_room');page.sync();assert.equal(navigation.at(-1).uri,'pages/receive');
     }else if(route==='pages/detail'){
       assert.equal(page.name,'Living room');assert(page.actions.some(a=>a.service==='turn_on'));await page.run(0);assert.equal(page.status,'State confirmed.');assert.equal(page.value.trim(),'on');

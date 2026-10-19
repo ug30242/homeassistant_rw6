@@ -9,7 +9,7 @@
 </template>
 <script>
 import router from '@system.router';
-import {store,client} from '../../common/runtime';
+import {store,client,stateCache} from '../../common/runtime';
 import {displayName,displayText} from '../../common/config';
 import {commands,execute} from '../../common/entities';
 export default {
@@ -19,13 +19,13 @@ export default {
     const record=await store.read();if(!this._visible||epoch!==this._epoch)return;
     this._entity=record&&record.config.entities.find(e=>e.id===this.entityId);
     if(!this._entity){this.status='Entity removed. Sync configuration.';return;}
-    this.name=displayName(this._entity);this._client=client(record.config);await this.refresh();
+    this._cache=stateCache.forConfig(record.config);this.name=displayName(this._entity);this._client=client(record.config);await this.refresh();
   }catch(_){if(this._visible&&epoch===this._epoch)this.status='Configuration unavailable.';}},
   showState(state){this._state=state;const a=state.attributes||{};this.value=displayText(state.state)+' '+displayText(a.unit_of_measurement||'');this.actions=commands(this._entity,state);},
   async refresh(){
     if(this._busy||!this._client)return;this._busy=true;const epoch=this._epoch;this.status='Updating...';
-    try{const state=await this._client.state(this.entityId);if(!this._visible||epoch!==this._epoch)return;this.showState(state);this.status='Current state fetched.';}
-    catch(error){if(this._visible&&epoch===this._epoch){this.status='STALE | '+error.message;this.actions=[];}}
+    try{const state=await this._client.state(this.entityId);if(!this._visible||epoch!==this._epoch)return;this._cache.put(this.entityId,state);this.showState(state);this.status='Current state fetched.';}
+    catch(error){if(this._visible&&epoch===this._epoch){this._cache.fail(this.entityId,error.message,this._cache.version(this.entityId));this.status='STALE | '+error.message;this.actions=[];}}
     finally{if(epoch===this._epoch)this._busy=false;}
   },
   async run(index){
@@ -34,8 +34,8 @@ export default {
     this._lastTap=Date.now();this._busy=true;const epoch=this._epoch;this.status='Sending...';
     try{
       const result=await execute(this._client,this._entity,command,this._state,{active:()=>this._visible&&epoch===this._epoch,delay:ms=>new Promise(resolve=>{this._delayResolve=resolve;this._delay=setTimeout(()=>{this._delay=null;this._delayResolve=null;resolve();},ms);})});
-      if(!this._visible||epoch!==this._epoch)return;this.showState(result.state);this.status=result.message;
-    }catch(error){if(this._visible&&epoch===this._epoch){this.status=error.message;this.actions=[];}}
+      if(!this._visible||epoch!==this._epoch)return;this._cache.put(this.entityId,result.state);if(!result.confirmed)this._cache.fail(this.entityId,result.message,this._cache.version(this.entityId));this.showState(result.state);this.status=result.message;
+    }catch(error){if(this._visible&&epoch===this._epoch){this._cache.fail(this.entityId,error.message,this._cache.version(this.entityId));this.status=error.message;this.actions=[];}}
     finally{if(epoch===this._epoch)this._busy=false;}
   },
   stop(){this._visible=false;this._epoch=(this._epoch||0)+1;this._busy=false;if(this._client)this._client.close();this._client=null;if(this._delay)clearTimeout(this._delay);if(this._delayResolve)this._delayResolve();this._delay=null;this._delayResolve=null;},

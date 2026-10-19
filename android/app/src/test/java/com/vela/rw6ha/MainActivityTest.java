@@ -8,6 +8,9 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.*;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.Implements;
+import org.robolectric.annotation.Implementation;
+import org.robolectric.annotation.Resetter;
 import org.robolectric.util.ReflectionHelpers;
 @RunWith(RobolectricTestRunner.class) @Config(sdk=28)
 public class MainActivityTest {
@@ -20,7 +23,7 @@ public class MainActivityTest {
         }
     }
     private Button domain(View root,String prefix){if(root instanceof Button&&((Button)root).getText().toString().startsWith(prefix))return (Button)root;if(root instanceof ViewGroup){ViewGroup group=(ViewGroup)root;for(int i=0;i<group.getChildCount();i++){Button found=domain(group.getChildAt(i),prefix);if(found!=null)return found;}}return null;}
-    private List<CheckBox> choices(View view){List<CheckBox> result=new ArrayList<>();if(view instanceof CheckBox)result.add((CheckBox)view);if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++)result.addAll(choices(group.getChildAt(i)));}return result;}
+    private List<CheckBox> choices(View view){List<CheckBox> result=new ArrayList<>();if(view instanceof CheckBox&&((CheckBox)view).getText().toString().contains("\n"))result.add((CheckBox)view);if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++)result.addAll(choices(group.getChildAt(i)));}return result;}
     @Test public void largeCatalogStartsCollapsedAndDomainPagesDoNotMixEntities() throws Exception {
         try(var controller=Robolectric.buildActivity(MainActivity.class).setup()){
             MainActivity activity=controller.get();EntityCatalog catalog=EntityCatalog.read(new StringReader(EntityCatalogTest.manyEntities()));
@@ -42,6 +45,36 @@ public class MainActivityTest {
             button(root,"서버").performClick();button(activity.getWindow().getDecorView(),"엔티티").performClick();root=activity.getWindow().getDecorView();
             assertEquals("TEMP_2599",((EditText)ReflectionHelpers.getField(activity,"searchInput")).getText().toString());assertEquals(1,choices(root).size());assertTrue(choices(root).get(0).isChecked());
             search=ReflectionHelpers.getField(activity,"searchInput");search.setText("no-such-entity");assertTrue(choices(root).isEmpty());
+        }
+    }
+    @Implements(value=ConfigVault.class,isInAndroidSdk=false)
+    public static class ShadowVault {
+        static String saved;static boolean fail;
+        @Implementation protected com.vela.rw6ha.Config read() throws Exception {
+            return saved==null?ConfigTest.fixture():com.vela.rw6ha.Config.parse(saved);
+        }
+        @Implementation protected void write(com.vela.rw6ha.Config value) throws Exception {
+            if(fail)throw new java.io.IOException("test storage failure");saved=value.payload();
+        }
+        @Resetter public static void reset(){saved=null;fail=false;}
+    }
+    private CheckBox favorite(View root){
+        if(root instanceof CheckBox&&"즐겨찾기 · 워치 Favorites".equals(((CheckBox)root).getText().toString()))return (CheckBox)root;
+        if(root instanceof ViewGroup){ViewGroup group=(ViewGroup)root;for(int i=0;i<group.getChildCount();i++){CheckBox found=favorite(group.getChildAt(i));if(found!=null)return found;}}
+        return null;
+    }
+    @Test @Config(sdk=28,shadows=ShadowVault.class)
+    public void favoriteIsVisibleSavedAndRestoredAndRollsBackOnStorageFailure() throws Exception {
+        try(var controller=Robolectric.buildActivity(MainActivity.class).setup()){
+            MainActivity activity=controller.get();button(activity.getWindow().getDecorView(),"엔티티").performClick();
+            CheckBox check=favorite(activity.getWindow().getDecorView());assertNotNull(check);assertTrue(check.isChecked());
+            check.performClick();assertFalse(check.isChecked());assertFalse(com.vela.rw6ha.Config.parse(ShadowVault.saved).entities.get(0).favorite);
+            check.performClick();assertTrue(com.vela.rw6ha.Config.parse(ShadowVault.saved).entities.get(0).favorite);
+            ShadowVault.fail=true;check.performClick();assertTrue(check.isChecked());assertTrue(com.vela.rw6ha.Config.parse(ShadowVault.saved).entities.get(0).favorite);ShadowVault.fail=false;
+            button(activity.getWindow().getDecorView(),"서버").performClick();button(activity.getWindow().getDecorView(),"엔티티").performClick();assertTrue(favorite(activity.getWindow().getDecorView()).isChecked());
+        }
+        try(var controller=Robolectric.buildActivity(MainActivity.class).setup()){
+            MainActivity activity=controller.get();button(activity.getWindow().getDecorView(),"엔티티").performClick();assertTrue(favorite(activity.getWindow().getDecorView()).isChecked());
         }
     }
 }

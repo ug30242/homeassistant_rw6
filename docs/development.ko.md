@@ -7,6 +7,8 @@
 - `android/xms-contract`: 원본 공개 AIDL/Parcelable 계약. MIT 고지 보존.
 - `src/common/ha-client.js`: 워치 fetch, 12초 타임아웃, HTTP 분류, 안전한 오류, 요청별 결과, close 시 미완료 Promise 취소. Android 호출 경로 없음.
 - `entities.js`: 지원 기능 기반 서비스 매핑. 센서는 read-only. POST 이후 최대 3번 상태 확인, 700ms 간격. 비동기 장면/스크립트는 실행 시각 변경 증거가 없으면 미확인 표시. 시계 차이도 미확인 원인이 될 수 있음.
+- `state-cache.js`: 페이지 번들 사이에 공유하는 세션 메모리 캐시. 서버·토큰·설정 버전 변경 시 교체하고 HA 속성 전체 대신 표시용 상태·단위·조회 시각만 보관. 메인화면 재진입/필터 변경은 TTL 내 결과를 재사용하고, 강제/주기 갱신은 최대 2개 단건 GET으로 처리. 대규모 `/api/states` 응답은 워치에서 받지 않음. 렌더 갱신은 120ms 단위로 합치고, 상세/메인 제어 후 캐시를 갱신하며 오래된 병렬 응답은 버전 검사로 무시.
+- 최신 상태 표시 전략: 현재 워치 앱의 네트워크 경로는 `system.fetch` REST 요청이며 HA WebSocket 이벤트 구독을 구현하지 않음. 기기별 WebSocket 지원을 확인하지 않고 푸시 연결이나 Android 상주 중계를 추가하지 않으며, 선택한 30/60/120초 주기로 활성 목록을 갱신. 실제 조회 시각을 표시하고 실패 시 이전 값을 STALE로 보존. 실기기에서 지연·메모리·배터리 영향을 별도 확인해야 함.
 - `sync-receiver.js`: `ha-hello/ready`, `ha-begin/chunk/commit`, `ha-ack`, protocol 1, 128비트 랜덤 요청 ID·transfer ID, 최대 메시지 2048바이트, 768바이트 청크(Base64 1024자), 최대 64개 청크/48 KiB, 90초 수신 유휴 만료. CRC32는 손상 검사이며 암호학적 인증이 아님.
 - Android는 같은 요청 ID로 최대 3번 전송, 단계별 5초/commit 15초 제한. hello는 1초 간격 최대 15번이며 준비 응답 전에는 토큰을 보내지 않음. XMS 연결 준비 제한은 30초.
 - `config-store.js`: inactive 슬롯 set → 동일 데이터 get 확인 → active 인덱스 set/get 확인 후 ACK. 정상 active가 있으면 staging은 채택하지 않음. active 손상 시 이전 슬롯 복원. 실제 전원 장애 원자성은 native storage 구현에 의존하므로 실기기 검증 필요.

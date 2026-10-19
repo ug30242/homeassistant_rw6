@@ -22,7 +22,7 @@ public final class MainActivity extends Activity implements XmsClient.Events,Syn
     private LinearLayout body,selected,available;private TextView statusView,selectionSummary;private EditText urlInput,tokenInput,searchInput;
     private CheckBox insecureInput;private Spinner refreshInput;private Button selectedToggle;
     private EntityCatalog discovered=EntityCatalog.empty();private int tab,networkEpoch,catalogPage;
-    private boolean networkBusy,vaultFailed,destroyed,selectedExpanded,revertingSelection;
+    private boolean networkBusy,vaultFailed,destroyed,selectedExpanded=true,revertingSelection;
     private String catalogQuery="",expandedDomain="";
     private String connectionName="연결된 워치 없음",lastServerInfo="연결 테스트 전",statusText="설정을 저장하고 워치에 동기화하세요.";
     @Override public void onCreate(Bundle state){
@@ -104,7 +104,7 @@ public final class MainActivity extends Activity implements XmsClient.Events,Syn
         if(!editable())return;Config next=new Config();next.revision=config.revision;if(persist(next)){discovered=EntityCatalog.empty();catalogQuery="";expandedDomain="";catalogPage=0;lastServerInfo="연결 테스트 전";setStatus("로컬 자격 증명 삭제됨. 워치 탭에서 삭제 설정을 동기화하세요.");render();}
     }).show();}
     private void entityPage(){
-        LinearLayout c=card("워치에 표시할 엔티티");selectionSummary=text("",14,BLUE);c.addView(selectionSummary);note(c,"선택 목록을 펼쳐 순서·이름·아이콘·즐겨찾기·공간을 편집하세요.");
+        LinearLayout c=card("워치에 표시할 엔티티");selectionSummary=text("",14,BLUE);c.addView(selectionSummary);note(c,"즐겨찾기를 체크하면 워치 메인화면 Favorites에 표시됩니다. 변경 후 워치 탭에서 전체 설정을 동기화하세요. 이름·아이콘·공간은 편집에서 변경합니다.");
         selectedToggle=button("",()->{selectedExpanded=!selectedExpanded;renderSelected();});c.addView(selectedToggle);selected=column();c.addView(selected);renderSelected();
         LinearLayout catalog=card("Home Assistant 엔티티");catalog.addView(button("엔티티 목록 자동 조회",()->runNetwork(false)));
         note(catalog,"도메인별로 펼쳐서 50개씩 봅니다. 검색은 불러온 전체 지원 엔티티에 적용됩니다.");
@@ -117,7 +117,15 @@ public final class MainActivity extends Activity implements XmsClient.Events,Syn
         if(config.entities.isEmpty()){note(selected,"아직 선택한 엔티티가 없습니다.");return;}
         if(!selectedExpanded)return;
         for(Config.Entity entity:config.entities){
-            LinearLayout box=column();box.setPadding(0,dp(8),0,dp(12));box.addView(text((entity.favorite?"★ ":"")+entity.name,17,TEXT));note(box,entity.id+" · "+(entity.group.isEmpty()?"그룹 없음":entity.group)+" · "+entity.icon);
+            LinearLayout box=column();box.setPadding(0,dp(8),0,dp(12));TextView title=text((entity.favorite?"★ ":"")+entity.name,17,TEXT);box.addView(title);note(box,entity.id+" · "+(entity.group.isEmpty()?"그룹 없음":entity.group)+" · "+entity.icon);
+            CheckBox favorite=new CheckBox(this);favorite.setText("즐겨찾기 · 워치 Favorites");favorite.setContentDescription(entity.name+" 즐겨찾기");favorite.setTextColor(TEXT);favorite.setButtonTintList(android.content.res.ColorStateList.valueOf(BLUE));favorite.setMinHeight(dp(48));favorite.setChecked(entity.favorite);box.addView(favorite);
+            favorite.setOnCheckedChangeListener((b,on)->{
+                Config.Entity current=config.find(entity.id);if(current==null||current.favorite==on)return;
+                boolean saved=false;
+                try{Config next=config.copy();next.find(entity.id).favorite=on;saved=persist(next);}catch(Exception e){setStatus("즐겨찾기 저장 실패.");}
+                if(saved){title.setText((on?"★ ":"")+entity.name);setStatus("즐겨찾기 저장됨. 워치 탭에서 전체 설정을 동기화하세요.");}
+                else b.setChecked(config.find(entity.id).favorite);
+            });
             LinearLayout actions=row();weighted(actions,button("↑",()->move(entity.id,-1)));weighted(actions,button("↓",()->move(entity.id,1)));weighted(actions,button("편집",()->editEntity(entity.id)));weighted(actions,button("삭제",()->remove(entity.id)));selected.addView(box);box.addView(actions);
         }
     }

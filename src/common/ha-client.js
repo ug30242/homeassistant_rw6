@@ -30,7 +30,7 @@ export function createHaClient(fetch,config,{timeout=12000,timers={setTimeout,cl
           success:response=>{
             if(done || closed)return;
             const code=Number(response.code);
-            if(code<200 || code>=300 || !Number.isInteger(code)) {finish(new Error(safeError(code||0)));return;}
+            if(code<200 || code>=300 || !Number.isInteger(code)) {const error=new Error(safeError(code||0));error.status=code;finish(error);return;}
             try {
               const raw=response.data;
               if(typeof raw==='string' && raw.length>262144)throw new Error();
