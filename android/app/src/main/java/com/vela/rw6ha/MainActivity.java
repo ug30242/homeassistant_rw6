@@ -14,16 +14,18 @@ import java.util.concurrent.*;
 
 /** Native foreground manager; never receives watch HTTP or control requests. */
 public final class MainActivity extends Activity implements XmsClient.Events,SyncSession.Events {
+    private static final int SERVER_TAB=0,CATALOG_TAB=1,REVIEW_TAB=2,WATCH_TAB=3;
     private static final int BG=0xff0b1220,CARD=0xff162338,TEXT=0xfff1f5f9,MUTED=0xff94a3b8,BLUE=0xff38bdf8;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final Handler syncHandler=new Handler(Looper.getMainLooper());
     private final ExecutorService network=Executors.newSingleThreadExecutor();
     private Config config;private ConfigVault vault;private XmsClient xms;private SyncSession sync;
-    private LinearLayout body,selected,available;private TextView statusView,selectionSummary;private EditText urlInput,tokenInput,searchInput;
-    private CheckBox insecureInput;private Spinner refreshInput;private Button selectedToggle;
+    private LinearLayout body,selected,available;private TextView statusView,selectionSummary,reviewCount;private EditText urlInput,tokenInput,searchInput,reviewSearchInput;
+    private CheckBox insecureInput,reviewFavoriteInput;private Spinner refreshInput,reviewDomainInput;
+    private final Map<String,Button> domainHeaders=new LinkedHashMap<>();
     private EntityCatalog discovered=EntityCatalog.empty();private int tab,networkEpoch,catalogPage;
-    private boolean networkBusy,vaultFailed,destroyed,selectedExpanded=true,revertingSelection;
-    private String catalogQuery="",expandedDomain="";
+    private boolean networkBusy,vaultFailed,destroyed,revertingSelection,reviewFavorites;
+    private String catalogQuery="",expandedDomain="",reviewQuery="",reviewDomain="";
     private String connectionName="연결된 워치 없음",lastServerInfo="연결 테스트 전",statusText="설정을 저장하고 워치에 동기화하세요.";
     @Override public void onCreate(Bundle state){
         super.onCreate(state);getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE,WindowManager.LayoutParams.FLAG_SECURE);
@@ -53,14 +55,19 @@ public final class MainActivity extends Activity implements XmsClient.Events,Syn
         catch(IllegalArgumentException e){setStatus(e.getMessage());return false;}
         catch(Exception e){setStatus("암호화 저장 실패. 기존 설정은 유지됩니다.");return false;}
     }
+    private void showTab(int next){
+        if(sync.isRunning()&&next!=WATCH_TAB){setStatus("동기화 진행 중입니다.");return;}
+        tab=next;render();
+    }
     private void render(){
+        selected=null;available=null;selectionSummary=null;reviewCount=null;reviewSearchInput=null;reviewDomainInput=null;reviewFavoriteInput=null;domainHeaders.clear();
         LinearLayout root=column();root.setPadding(dp(18),dp(12),dp(18),0);root.setBackgroundColor(BG);
         root.setOnApplyWindowInsetsListener((v,insets)->{if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());v.setPadding(dp(18)+bars.left,dp(12)+bars.top,dp(18)+bars.right,bars.bottom);}else{v.setPadding(dp(18)+insets.getSystemWindowInsetLeft(),dp(12)+insets.getSystemWindowInsetTop(),dp(18)+insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());}return insets;});
         TextView heading=text("Home Assistant",28,TEXT);heading.setTypeface(null,Typeface.BOLD);root.addView(heading);root.addView(text("REDMI WATCH 6 · 설정 관리자",12,BLUE));
-        LinearLayout tabs=row();String[] names={"서버","엔티티","워치"};for(int i=0;i<3;i++){final int n=i;Button b=button(names[i],()->{if(sync.isRunning()&&n!=2){setStatus("동기화 진행 중입니다.");return;}tab=n;render();});if(tab==i)b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff0369a1));weighted(tabs,b);}root.addView(tabs);
+        LinearLayout tabs=row();String[] names={"서버","엔티티","선택목록","워치"};for(int i=0;i<names.length;i++){final int n=i;Button b=button(names[i],()->showTab(n));b.setTextSize(13);b.setPadding(dp(4),0,dp(4),0);b.setMinWidth(0);if(tab==i)b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff0369a1));weighted(tabs,b);}root.addView(tabs);
         statusView=text(statusText,14,BLUE);statusView.setMinHeight(dp(56));root.addView(statusView);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);body=column();body.setPadding(0,dp(10),0,dp(24));scroll.addView(body);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);
-        if(tab==0)serverPage();else if(tab==1)entityPage();else watchPage();
+        if(tab==SERVER_TAB)serverPage();else if(tab==CATALOG_TAB)entityPage();else if(tab==REVIEW_TAB)reviewPage();else watchPage();
     }
     private void serverPage(){
         LinearLayout c=card("서버 연결");note(c,"최종 Home Assistant 주소를 입력하세요. HTTPS 인증서를 정상 검증합니다.");
@@ -68,7 +75,7 @@ public final class MainActivity extends Activity implements XmsClient.Events,Syn
         tokenInput=field(config.token.isEmpty()?"Long-Lived Access Token":"새 토큰 입력 · 비워두면 기존 토큰 유지","",true);c.addView(tokenInput);
         note(c,config.token.isEmpty()?"저장된 토큰 없음":"토큰이 Android Keystore로 암호화되어 있습니다.");
         insecureInput=new CheckBox(this);insecureInput.setText("신뢰하는 로컬 네트워크에서 HTTP 허용");insecureInput.setTextColor(TEXT);insecureInput.setButtonTintList(android.content.res.ColorStateList.valueOf(BLUE));insecureInput.setChecked(config.allowInsecure);c.addView(insecureInput);note(c,"HTTP는 토큰을 평문으로 전송합니다. 공인 HTTPS 사용을 권장합니다.");
-        refreshInput=spinner(new String[]{"수동 새로고침 (기본)","활성 화면에서 30초","활성 화면에서 60초","활성 화면에서 120초"});refreshInput.setSelection(Arrays.asList(0,30,60,120).indexOf(config.refreshSeconds));c.addView(refreshInput);
+        refreshInput=spinner(new String[]{"상세 진입 / 수동 갱신 (기본)","상세화면에서 30초","상세화면에서 60초","상세화면에서 120초"});refreshInput.setSelection(Arrays.asList(0,30,60,120).indexOf(config.refreshSeconds));c.addView(refreshInput);note(c,"워치 목록은 카드만 표시합니다. 상태 조회·제어와 자동 갱신은 상세화면에서만 동작합니다.");
         c.addView(button("암호화 저장",()->saveServer(true)));
         c.addView(button("저장 후 서버 연결 테스트",()->{if(saveServer(false))testServer();}));
         note(c,lastServerInfo);LinearLayout security=card("인증정보 관리");note(security,"워치 일반 저장소는 보안 저장소가 아닙니다. 최소 권한 전용 계정을 사용하고 분실 시 Home Assistant에서 토큰을 폐기하세요.");security.addView(button("로컬 토큰 삭제 · 워치 삭제 설정 준비",this::confirmDelete));
@@ -103,46 +110,79 @@ public final class MainActivity extends Activity implements XmsClient.Events,Syn
     private void confirmDelete(){new AlertDialog.Builder(this).setTitle("Android 토큰 삭제").setMessage("로컬 토큰과 선택 목록을 삭제합니다. 워치의 기존 토큰은 동기화 또는 워치 Info > Erase로 따로 삭제해야 합니다. Home Assistant에서도 토큰을 폐기할 수 있습니다.").setNegativeButton("취소",null).setPositiveButton("삭제",(d,w)->{
         if(!editable())return;Config next=new Config();next.revision=config.revision;if(persist(next)){discovered=EntityCatalog.empty();catalogQuery="";expandedDomain="";catalogPage=0;lastServerInfo="연결 테스트 전";setStatus("로컬 자격 증명 삭제됨. 워치 탭에서 삭제 설정을 동기화하세요.");render();}
     }).show();}
+    private int selectedCount(String domain){int count=0;for(Config.Entity e:config.entities)if(e.domain().equals(domain))count++;return count;}
+    private void updateSelectionSummary(){
+        int favorites=0;for(Config.Entity e:config.entities)if(e.favorite)favorites++;
+        if(selectionSummary!=null)selectionSummary.setText(config.entities.size()+" / 80개 선택됨 · 즐겨찾기 "+favorites+"개");
+    }
     private void entityPage(){
-        LinearLayout c=card("워치에 표시할 엔티티");selectionSummary=text("",14,BLUE);c.addView(selectionSummary);note(c,"즐겨찾기를 체크하면 워치 메인화면 Favorites에 표시됩니다. 변경 후 워치 탭에서 전체 설정을 동기화하세요. 이름·아이콘·공간은 편집에서 변경합니다.");
-        selectedToggle=button("",()->{selectedExpanded=!selectedExpanded;renderSelected();});c.addView(selectedToggle);selected=column();c.addView(selected);renderSelected();
+        LinearLayout c=card("워치에 표시할 엔티티");selectionSummary=text("",14,BLUE);c.addView(selectionSummary);updateSelectionSummary();
+        c.addView(button("선택목록 검토",()->showTab(REVIEW_TAB)));note(c,"선택한 항목의 이름·즐겨찾기·순서는 선택목록 탭에서 검토하고 편집하세요.");
         LinearLayout catalog=card("Home Assistant 엔티티");catalog.addView(button("엔티티 목록 자동 조회",()->runNetwork(false)));
-        note(catalog,"도메인별로 펼쳐서 50개씩 봅니다. 검색은 불러온 전체 지원 엔티티에 적용됩니다.");
+        note(catalog,"도메인을 펼쳐 50개씩 선택합니다. 선택 개수는 검색·페이지와 관계없이 전체 선택 기준입니다.");
         searchInput=field("이름 또는 entity_id 검색",catalogQuery,false);catalog.addView(searchInput);available=column();catalog.addView(available);
         searchInput.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){catalogQuery=s.toString();catalogPage=0;renderAvailable();}public void afterTextChanged(Editable e){}});renderAvailable();
     }
+    private void reviewPage(){
+        LinearLayout c=card("선택한 엔티티 검토");selectionSummary=text("",14,BLUE);c.addView(selectionSummary);updateSelectionSummary();
+        note(c,"서버 목록을 다시 조회하지 않아도 저장된 선택 항목을 확인할 수 있습니다. 변경 후 워치 탭에서 전체 설정을 동기화하세요.");
+        LinearLayout navigation=row();weighted(navigation,button("엔티티 추가",()->showTab(CATALOG_TAB)));weighted(navigation,button("워치 동기화로 이동",()->showTab(WATCH_TAB)));c.addView(navigation);
+        String[] domains=new String[Config.DOMAINS.size()+1];domains[0]="전체 도메인";for(int i=0;i<Config.DOMAINS.size();i++)domains[i+1]=EntityCatalog.label(Config.DOMAINS.get(i));
+        reviewDomainInput=spinner(domains);reviewDomainInput.setContentDescription("선택목록 도메인 필터");reviewDomainInput.setSelection(reviewDomain.isEmpty()?0:Config.DOMAINS.indexOf(reviewDomain)+1);c.addView(reviewDomainInput);
+        reviewDomainInput.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){public void onNothingSelected(AdapterView<?> parent){}public void onItemSelected(AdapterView<?> parent,View view,int position,long id){String value=position==0?"":Config.DOMAINS.get(position-1);if(!reviewDomain.equals(value)){reviewDomain=value;renderSelected();}}});
+        reviewFavoriteInput=new CheckBox(this);reviewFavoriteInput.setText("즐겨찾기만 보기");reviewFavoriteInput.setTextColor(TEXT);reviewFavoriteInput.setButtonTintList(android.content.res.ColorStateList.valueOf(BLUE));reviewFavoriteInput.setChecked(reviewFavorites);c.addView(reviewFavoriteInput);reviewFavoriteInput.setOnCheckedChangeListener((b,on)->{reviewFavorites=on;renderSelected();});
+        reviewSearchInput=field("선택 목록 이름 · ID · 그룹 검색",reviewQuery,false);c.addView(reviewSearchInput);
+        reviewSearchInput.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){reviewQuery=s.toString();renderSelected();}public void afterTextChanged(Editable e){}});
+        note(c,"번호와 ↑/↓ 이동은 전체 선택 순서 기준입니다. 워치에서는 즐겨찾기를 먼저 표시합니다.");
+        reviewCount=text("",14,BLUE);c.addView(reviewCount);selected=column();c.addView(selected);renderSelected();
+    }
+    static String watchName(Config.Entity entity){
+        String name=entity.name.trim().replaceAll(" +"," ");if(!name.isEmpty()&&name.matches("[\\x20-\\x7e]+"))return name;
+        String fallback=entity.id.substring(entity.id.indexOf('.')+1).replaceAll("_+"," ").trim();if(fallback.isEmpty())fallback=entity.id;
+        return fallback.substring(0,1).toUpperCase(Locale.ROOT)+fallback.substring(1);
+    }
     private void renderSelected(){
-        selected.removeAllViews();if(selectionSummary!=null)selectionSummary.setText(config.entities.size()+" / 80개 선택됨");
-        selectedToggle.setText(selectedExpanded?"선택 목록 접기":"선택 목록 펼치기");selectedToggle.setVisibility(config.entities.isEmpty()?View.GONE:View.VISIBLE);
-        if(config.entities.isEmpty()){note(selected,"아직 선택한 엔티티가 없습니다.");return;}
-        if(!selectedExpanded)return;
+        updateSelectionSummary();if(selected==null)return;selected.removeAllViews();
+        if(config.entities.isEmpty()){reviewCount.setText("0개 표시");note(selected,"아직 선택한 엔티티가 없습니다. 엔티티 추가에서 선택하세요.");return;}
+        int visible=0;String query=reviewQuery.trim().toLowerCase(Locale.ROOT);
         for(Config.Entity entity:config.entities){
-            LinearLayout box=column();box.setPadding(0,dp(8),0,dp(12));TextView title=text((entity.favorite?"★ ":"")+entity.name,17,TEXT);box.addView(title);note(box,entity.id+" · "+(entity.group.isEmpty()?"그룹 없음":entity.group)+" · "+entity.icon);
+            if((!reviewDomain.isEmpty()&&!entity.domain().equals(reviewDomain))||(reviewFavorites&&!entity.favorite)||!(entity.name+" "+entity.id+" "+entity.group).toLowerCase(Locale.ROOT).contains(query))continue;
+            visible++;int index=config.entities.indexOf(entity);
+            LinearLayout box=column();box.setPadding(dp(12),dp(8),dp(12),dp(12));box.setBackground(shape(0xff0f1c2e));
+            LinearLayout.LayoutParams boxParams=new LinearLayout.LayoutParams(-1,-2);boxParams.bottomMargin=dp(10);selected.addView(box,boxParams);
+            box.addView(text((index+1)+" · "+(entity.favorite?"★ ":"")+(entity.name.isEmpty()?watchName(entity):entity.name),18,TEXT));
+            note(box,EntityCatalog.label(entity.domain())+" · "+(entity.group.isEmpty()?"그룹 없음":entity.group));note(box,entity.id);note(box,"워치 이름: "+watchName(entity));
             CheckBox favorite=new CheckBox(this);favorite.setText("즐겨찾기 · 워치 Favorites");favorite.setContentDescription(entity.name+" 즐겨찾기");favorite.setTextColor(TEXT);favorite.setButtonTintList(android.content.res.ColorStateList.valueOf(BLUE));favorite.setMinHeight(dp(48));favorite.setChecked(entity.favorite);box.addView(favorite);
             favorite.setOnCheckedChangeListener((b,on)->{
                 Config.Entity current=config.find(entity.id);if(current==null||current.favorite==on)return;
                 boolean saved=false;
                 try{Config next=config.copy();next.find(entity.id).favorite=on;saved=persist(next);}catch(Exception e){setStatus("즐겨찾기 저장 실패.");}
-                if(saved){title.setText((on?"★ ":"")+entity.name);setStatus("즐겨찾기 저장됨. 워치 탭에서 전체 설정을 동기화하세요.");}
+                if(saved){renderSelected();setStatus("즐겨찾기 저장됨. 워치 탭에서 전체 설정을 동기화하세요.");}
                 else b.setChecked(config.find(entity.id).favorite);
             });
-            LinearLayout actions=row();weighted(actions,button("↑",()->move(entity.id,-1)));weighted(actions,button("↓",()->move(entity.id,1)));weighted(actions,button("편집",()->editEntity(entity.id)));weighted(actions,button("삭제",()->remove(entity.id)));selected.addView(box);box.addView(actions);
+            LinearLayout actions=row();Button up=button("↑",()->move(entity.id,-1)),down=button("↓",()->move(entity.id,1));up.setEnabled(index>0);down.setEnabled(index+1<config.entities.size());weighted(actions,up);weighted(actions,down);weighted(actions,button("편집",()->editEntity(entity.id)));weighted(actions,button("삭제",()->remove(entity.id)));box.addView(actions);
         }
+        reviewCount.setText(visible+" / "+config.entities.size()+"개 표시");if(visible==0)note(selected,"필터에 맞는 선택 항목이 없습니다. 검색이나 필터를 변경하세요.");
     }
+    private String domainHeaderLabel(String domain){
+        int total=discovered.matching(domain,"").size(),matches=discovered.matching(domain,catalogQuery).size();
+        String count=discovered.totalCount==0?"미조회":catalogQuery.trim().isEmpty()?total+"개":matches+" / "+total+"개";
+        return EntityCatalog.label(domain)+" · "+count+" · 선택 "+selectedCount(domain)+"개"+(expandedDomain.equals(domain)?" 접기":" 펼치기");
+    }
+    private void updateDomainHeaders(){for(Map.Entry<String,Button> entry:domainHeaders.entrySet())entry.getValue().setText(domainHeaderLabel(entry.getKey()));}
     private void renderAvailable(){
         renderAvailable(false);
     }
     private void renderAvailable(boolean scrollToDomain){
-        if(available==null)return;available.removeAllViews();
-        if(discovered.totalCount==0){note(available,"목록을 불러온 후 도메인을 펼쳐 엔티티를 선택하세요.");return;}
+        if(available==null)return;available.removeAllViews();domainHeaders.clear();
+        if(discovered.totalCount==0)note(available,"목록을 불러온 후 도메인을 펼쳐 엔티티를 선택하세요.");
         note(available,"전체 "+discovered.totalCount+"개 · 지원 도메인 "+discovered.supportedCount+"개");int matches=0;View expandedHeader=null;
         for(String domain:Config.DOMAINS){
             List<EntityCatalog.Item> items=discovered.matching(domain,catalogQuery);matches+=items.size();
-            int total=discovered.matching(domain,"").size();boolean expanded=expandedDomain.equals(domain);
-            String count=catalogQuery.trim().isEmpty()?items.size()+"개":items.size()+" / "+total+"개";
-            Button header=button(EntityCatalog.label(domain)+" · "+count+(expanded?" 접기":" 펼치기"),()->{
+            boolean expanded=expandedDomain.equals(domain);
+            Button header=button(domainHeaderLabel(domain),()->{
                 expandedDomain=expanded?"":domain;catalogPage=0;renderAvailable(true);
-            });available.addView(header);
+            });available.addView(header);domainHeaders.put(domain,header);
             if(!expanded)continue;
             expandedHeader=header;
             if(items.isEmpty()){note(available,"이 도메인에는 검색 결과가 없습니다.");continue;}
@@ -166,7 +206,7 @@ public final class MainActivity extends Activity implements XmsClient.Events,Syn
             if(editable())try{
                 Config next=config.copy();Config.Entity existing=next.find(entity.id);
                 if(on&&existing==null)next.entities.add(new Config.Entity(entity.id,entity.name));else if(!on&&existing!=null)next.entities.remove(existing);
-                saved=persist(next);if(saved){renderSelected();setStatus("선택 저장됨. 워치 동기화가 필요합니다.");}
+                saved=persist(next);if(saved){renderSelected();updateDomainHeaders();setStatus("선택 저장됨. 워치 동기화가 필요합니다.");}
             }catch(Exception e){setStatus("엔티티 선택 실패.");}
             if(!saved){revertingSelection=true;try{b.setChecked(config.find(entity.id)!=null);}finally{revertingSelection=false;}}
         });parent.addView(check);
@@ -201,7 +241,7 @@ public final class MainActivity extends Activity implements XmsClient.Events,Syn
         if(nodes.size()==1){xms.select(nodes.get(0));return;}String[] names=new String[nodes.size()];for(int i=0;i<nodes.size();i++)names[i]=nodes.get(i).name;
         new AlertDialog.Builder(this).setTitle("워치 선택").setItems(names,(d,w)->xms.select(nodes.get(w))).show();
     }
-    @Override public void ready(String name){connectionName="연결됨: "+name;setStatus(connectionName+" · 워치 Phone sync 화면을 여세요.");if(tab==2)render();}
+    @Override public void ready(String name){connectionName="연결됨: "+name;setStatus(connectionName+" · 워치 Phone sync 화면을 여세요.");if(tab==WATCH_TAB)render();}
     @Override public void error(String message){connectionName="워치 연결 확인 필요";if(sync.isRunning())sync.fail(message);else setStatus(message);}
     @Override public void message(String json){sync.receive(json);}
     @Override public void authorizing(){setStatus("Mi Fitness에서 동반 앱 기기 통신 권한을 허용하세요.");}

@@ -29,7 +29,14 @@ export function validateConfig(value) {
     cleared, refreshSeconds:refresh, entities};
 }
 export function displayName(entity) {
-  return entity.name && /^[\x20-\x7e]+$/.test(entity.name) ? entity.name : entity.id.split('.').slice(1).join('.').replace(/_/g,' ');
+  const name=(entity.name||'').trim().replace(/ +/g,' ');
+  if(name && /^[\x20-\x7e]+$/.test(name))return name;
+  const fallback=entity.id.split('.').slice(1).join('.').replace(/_+/g,' ').trim()||entity.id;
+  return fallback.charAt(0).toUpperCase()+fallback.slice(1);
+}
+export function entityKind(entity) {
+  const labels={light:'Light',switch:'Switch',fan:'Fan',cover:'Cover',sensor:'Sensor',scene:'Scene',script:'Script'};
+  return labels[entity.id.split('.')[0]]||'Entity';
 }
 export function iconPath(entity) {
   const aliases={'mdi:lightbulb':'light','mdi:toggle-switch':'switch','mdi:fan':'fan','mdi:curtains':'cover','mdi:blinds':'cover','mdi:thermometer':'sensor','mdi:palette':'scene','mdi:script':'script'};

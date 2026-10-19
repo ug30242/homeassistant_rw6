@@ -16,7 +16,7 @@ async function smokeRpk(file){
   function crc(bytes){let c=0xffffffff;for(const b of bytes){c^=b;for(let j=0;j<8;j++)c=(c>>>1)^((c&1)?0xedb88320:0);}return ((c^0xffffffff)>>>0).toString(16).padStart(8,'0');}
   const trees={};
   for(const [route,entry] of Object.entries(manifest.router.pages)){
-    const scheduled=new Map(),sent=[],requests=[],navigation=[];let timer=0;
+    const scheduled=new Map(),sent=[],requests=[],navigation=[];let timer=0,detailNavigationRequests=0;
     const storage={'ha.config.active':'a','ha.config.a':JSON.stringify({transfer:'a'.repeat(32),checksum:crc(Buffer.from(payload)),payload})};
     let light='off',hold=false;const held=[];
     const connect={send({data,success}){assert.equal(typeof data,'object');assert.equal(typeof data.data,'string');sent.push(JSON.parse(data.data));if(success)success();},getReadyState({success}){success({status:1});}};
@@ -44,7 +44,31 @@ async function smokeRpk(file){
     if(page.onInit)await page.onInit();if(page.onShow)await page.onShow();await flush();
     function nodes(){const list=[];function walk(n){if(Array.isArray(n)){n.forEach(walk);return;}if(!n)return;list.push(n);(n.children||[]).forEach(walk);}walk(definition.template(page));return list;}
     const visible=nodes();assert(visible.some(n=>n.opts.events&&n.opts.events.click),'Missing interactive controls');
-    if(route==='pages/index'){
+    if(route==='pages/index'&&typeof page.power!=='function'){
+      assert.equal(requests.length,0,'The card list must never query HA');assert.equal(scheduled.size,0,'The card list must not poll');
+      assert.equal(page.items.length,2);assert.equal(page.items[0].name,'Living room');assert.equal(page.items[0].kind,'Light | Favorite');assert.equal(page.items[1].kind,'Sensor | Favorite');
+      assert.equal(page.items[0].iconPath,'/common/icons/light.png');assert(!Object.hasOwn(page.items[0],'state'));
+      const values=visible.filter(n=>n.tag==='input').map(n=>typeof n.opts.value==='function'?n.opts.value():n.opts.value);
+      for(const label of ['Refresh','ON','OFF'])assert(!values.includes(label),'List must not expose '+label);
+      const card=visible.find(n=>n.tag==='list-item'&&n.opts.events&&n.opts.events.click);assert(card,'Whole card must be tappable');
+      card.opts.events.click({});assert.equal(navigation.at(-1).uri,'pages/detail');assert.equal(navigation.at(-1).params.entityId,'light.living_room');
+      // Actually open the separately compiled detail page: only it fetches/controls.
+      page.onHide();const detailExports={};evaluate(await zip.file('pages/detail/index.js').async('string'),'card-detail-test.js')(context,context,context,detailExports,{});
+      const detailResult={};detailExports.entry(detailResult);const detail=Object.assign({},detailResult.default,detailResult.default.data,{entityId:navigation.at(-1).params.entityId});
+      detail.onShow();await flush();assert.equal(requests.length,1);assert(requests[0].url.endsWith('/api/states/light.living_room'));assert(detail.actions.some(a=>a.service==='turn_on'));
+      await detail.run(0);assert.equal(light,'on');assert.equal(detail.status,'State confirmed.');detail.onHide();detail.onDestroy();
+      const afterDetail=requests.length;detailNavigationRequests=afterDetail;page.onShow();await flush();assert.equal(requests.length,afterDetail);assert.equal(scheduled.size,0);
+      // All 80 configured entities, filters, empty favorites and reentry remain local.
+      function saveConfig(value){const payload=JSON.stringify(value);storage['ha.config.a']=JSON.stringify({transfer:'a'.repeat(32),checksum:crc(Buffer.from(payload)),payload});}
+      const entities=Array.from({length:80},(_,i)=>({id:'sensor.reading_'+i,name:'Reading '+i,icon:'sensor',group:i%2?'Upstairs':'Downstairs',favorite:i%2===0}));
+      saveConfig({...config,revision:11,entities});page.onHide();page.filter=0;page.onShow();await flush();assert.equal(page.items.length,40);page.cycleFilter();assert.equal(page.items.length,80);
+      for(let i=0;i<8;i++){page.cycleFilter();await flush();}page.onHide();page.onShow();await flush();
+      saveConfig({...config,revision:12,entities:entities.map(e=>({...e,favorite:false}))});page.onHide();page.filter=0;page.onShow();await flush();assert.equal(page.items.length,0);assert(page.emptyText.includes('No favorites'));page.cycleFilter();assert.equal(page.items.length,80);
+      saveConfig({...config,revision:13,cleared:true,token:'',server:'',entities:[]});page.onHide();page.onShow();await flush();assert.equal(page.items.length,0);
+      saveConfig(config);page.onHide();page.filter=0;page.onShow();await flush();assert.equal(page.items.length,2);
+      assert.equal(requests.length,afterDetail,'List navigation must not fetch or control');assert.equal(scheduled.size,0);
+      page.sync();assert.equal(navigation.at(-1).uri,'pages/receive');page.settings();assert.equal(navigation.at(-1).uri,'pages/settings');
+    }else if(route==='pages/index'){
       assert.equal(page.items.length,2);assert(page.items[0].canPower);assert.equal(page.items[1].canPower,false);
       // Exercise compiled event binding, including the service string argument.
       const on=visible.find(n=>n.tag==='input'&&(typeof n.opts.value==='function'?n.opts.value():n.opts.value)==='ON');assert(on);on.opts.events.click({});await flush();
@@ -89,6 +113,7 @@ async function smokeRpk(file){
       page.detail(0);assert.equal(navigation.at(-1).params.entityId,'light.living_room');page.sync();assert.equal(navigation.at(-1).uri,'pages/receive');
     }else if(route==='pages/detail'){
       assert.equal(page.name,'Living room');assert(page.actions.some(a=>a.service==='turn_on'));await page.run(0);assert.equal(page.status,'State confirmed.');assert.equal(page.value.trim(),'on');
+      if(page._poll){const before=requests.length;scheduled.get(page._poll)();await flush();assert.equal(requests.length,before+1,'Only detail polling should fetch its entity');}
     }else if(route==='pages/settings'){
       assert.equal(requests.length,0,'Info page must not poll');await page.probe(false);assert(page.status.includes('passed'));await page.probe(true);assert(requests.some(r=>r.url.endsWith('/homeassistant/update_entity')));
       await page.erase();await page.erase();assert.equal(storage['ha.config.a'],'');assert.equal(storage['ha.config.b'],'');
@@ -102,12 +127,12 @@ async function smokeRpk(file){
       // The first page's close must not remove the next page's singleton handler.
       const previous=page._channel;await page.onShow();previous.close();await connect.onmessage({data:JSON.stringify(p('ha-hello'))});assert.equal(sent.at(-1).type,'ha-ready');
     }
-    if(route==='pages/index'||route==='pages/detail'){
+    if(route==='pages/detail'||(route==='pages/index'&&typeof page.refresh==='function')){
       hold=true;const pending=page.refresh(),status=page.status;assert(held.length>0);
       page.onHide();for(const request of held)request.success({code:200,data:'{"entity_id":"light.living_room","state":"on","attributes":{}}'});
       await pending;await flush();assert.equal(page.status,status,'Late native callback updated a hidden page');
     }
-    trees[route]={nodes:visible.length,networkRequests:requests.length};
+    trees[route]={nodes:visible.length,networkRequests:requests.length-detailNavigationRequests};if(detailNavigationRequests)trees[route].detailNavigationRequests=detailNavigationRequests;
     if(page.onHide)page.onHide();if(page.onDestroy)page.onDestroy();await flush();assert.equal(scheduled.size,0,'Page timer leaked');
     if(route==='pages/receive'){const count=sent.length;await connect.onmessage({data:JSON.stringify({type:'ha-hello',version:1,id:'e'.repeat(32)})});assert.equal(sent.length,count);}
   }

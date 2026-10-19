@@ -1,109 +1,64 @@
 <template>
   <div class="page">
-    <div class="row"><text class="title">HA Control</text><input class="small" type="button" value="Sync" onclick="sync" /></div>
-    <div class="row"><input class="tab" type="button" value="{{ filterLabel }}" onclick="cycleFilter" /><input class="tab" type="button" value="Refresh" onclick="refresh" /><input class="small" type="button" value="Info" onclick="settings" /></div>
-    <text class="status">{{ status }}</text>
+    <div class="row"><text class="title">HA Control</text><input class="small" type="button" value="Sync" onclick="sync" /><input class="small" type="button" value="Info" onclick="settings" /></div>
+    <div class="filters"><input class="tab" type="button" value="{{ filterLabel }}" onclick="cycleFilter" /><text class="count">{{ countLabel }}</text></div>
+    <text class="hint">Tap a card to view and control.</text>
     <text class="empty" if="{{ !items.length }}">{{ emptyText }}</text>
     <list class="list" if="{{ items.length }}">
-      <list-item type="entity" class="card" for="{{ (idx, item) in items }}">
-        <div class="card-top"><image class="glyph" src="{{ item.iconPath }}" /><div class="entity" onclick="detail(idx)"><text class="name">{{ item.name }}</text><text class="meta">{{ item.icon }} | {{ item.group }}</text><text class="state">{{ item.state }}</text><text class="checked">{{ item.checked }}</text></div><input class="open" type="button" value="Open" onclick="detail(idx)" /></div>
-        <div class="power-row" if="{{ item.canPower }}"><input class="power" type="button" value="ON" onclick="power(idx, 'turn_on')" /><input class="power" type="button" value="OFF" onclick="power(idx, 'turn_off')" /></div>
+      <list-item type="entity" class="card" for="{{ (idx, item) in items }}" onclick="detail(idx)">
+        <image class="glyph" src="{{ item.iconPath }}" />
+        <div class="entity"><text class="kind">{{ item.kind }}</text><text class="name">{{ item.name }}</text><text class="group" if="{{ item.group }}">{{ item.group }}</text></div>
+        <text class="arrow">&gt;</text>
       </list-item>
     </list>
   </div>
 </template>
 <script>
 import router from '@system.router';
-import {store,client,stateCache} from '../../common/runtime';
-import {refreshStates} from '../../common/state-cache';
-import {displayName,displayText,iconPath} from '../../common/config';
-import {commands,execute,available} from '../../common/entities';
+import {store} from '../../common/runtime';
+import {displayName,displayText,iconPath,entityKind} from '../../common/config';
 export default {
-  private:{items:[],status:'Loading...',filterLabel:'Favorites',emptyText:'Sync settings from Android.',filter:0},
-  onShow(){this.stop();this._visible=true;this._epoch=(this._epoch||0)+1;this.load(this._epoch);},
+  private:{items:[],filterLabel:'Favorites',countLabel:'',emptyText:'Loading saved list...',filter:0},
+  onShow(){this.stop();this._visible=true;this.load(this._epoch);},
   async load(epoch){
     try {
       const record=await store.read();if(!this._visible||epoch!==this._epoch)return;
-      this._config=record&&!record.config.cleared?record.config:null;
-      this._cache=stateCache.forConfig(this._config||{cleared:true});this._groups=['Favorites','All'];
+      this._config=record&&!record.config.cleared?record.config:null;this._groups=['Favorites','All'];
       if(this._config)this._config.entities.forEach(e=>{if(e.group&&this._groups.indexOf(e.group)<0)this._groups.push(e.group);});
       if(this.filter>=this._groups.length)this.filter=0;this.render();
-      if(!this._config){this.status='No server configured.';return;}
-      this._client=client(this._config);this.status='Saved states | updating in background';this.refresh(false);
-      if(this._config.refreshSeconds)this._poll=setInterval(()=>{if(!this._refreshing&&!this._actionBusy)this.refresh(true);},this._config.refreshSeconds*1000);
-    }catch(_){if(this._visible&&epoch===this._epoch)this.status='Storage error. Open Sync or Info.';}
+    }catch(_){if(this._visible&&epoch===this._epoch){this._config=null;this._shown=[];this.items=[];this.countLabel='';this.emptyText='Storage error. Open Sync or Info.';}}
   },
   render(){
-    const all=this._config?this._config.entities:[];const label=this._groups?this._groups[this.filter]:'Favorites';
-    this.filterLabel=displayText(label);
+    const all=this._config?this._config.entities:[],label=this._groups[this.filter];
+    this.filterLabel=/^[\x20-\x7e]+$/.test(label)?displayText(label):'Group '+(this.filter-1);
     this._shown=all.filter(e=>this.filter===0?e.favorite:this.filter===1?true:e.group===label).sort((a,b)=>Number(b.favorite)-Number(a.favorite)||a.order-b.order);
-    this.items=this._shown.map(e=>{
-      const entry=this._cache&&this._cache.get(e.id),state=entry&&entry.state,error=entry&&entry.error;
-      const time=entry&&entry.updatedAt?new Date(entry.updatedAt):null;
-      const checked=time?'Checked '+time.getHours()+':'+('0'+time.getMinutes()).slice(-2)+':'+('0'+time.getSeconds()).slice(-2):'Open for details';
-      return {name:displayName(e),icon:e.icon||e.domain,iconPath:iconPath(e),group:displayText(e.group||'Home'),canPower:!error&&available(state)&&['light','switch','fan'].indexOf(e.domain)>=0,
-        checked,state:(error?'STALE | ':'')+(state?displayText(state.state)+' '+displayText((state.attributes||{}).unit_of_measurement||''):'Not loaded')};
-    });
+    this.items=this._shown.map(e=>({name:displayName(e),kind:entityKind(e)+(e.favorite?' | Favorite':''),iconPath:iconPath(e),group:e.group&&/^[\x20-\x7e]+$/.test(e.group)?displayText(e.group):''}));
+    this.countLabel=this.items.length+' / '+all.length;
     this.emptyText=all.length?(this.filter===0?'No favorites. Tap Favorites for All.':'No entities in this group.'):'Sync settings from Android.';
   },
-  cycleFilter(){if(!this._groups)return;this.filter=(this.filter+1)%this._groups.length;this.render();this.refresh(false);},
-  scheduleRender(){
-    if(this._renderTimer)return;
-    const epoch=this._epoch;this._renderTimer=setTimeout(()=>{this._renderTimer=null;if(this._visible&&epoch===this._epoch)this.render();},120);
-  },
-  async refresh(force=true){
-    if(!this._client||!this._visible)return;
-    if(this._actionBusy||this._refreshing){this._refreshAgain=true;this._forceAgain=this._forceAgain||force;return;}
-    const epoch=this._epoch,api=this._client,cache=this._cache,actionSequence=this._actionSequence||0;this._refreshing=true;
-    this.status='Updating in background...';
-    try {
-      const result=await refreshStates(api,(this._shown||[]).slice(),cache,{force,ttl:(this._config.refreshSeconds||30)*1000,
-        active:()=>this._visible&&epoch===this._epoch,skip:id=>this._actionBusy&&this._actionId===id,onUpdate:()=>this.scheduleRender()});
-      if(!this._visible||epoch!==this._epoch)return;
-      if(this._renderTimer)clearTimeout(this._renderTimer);this._renderTimer=null;this.render();
-      if(!this._actionBusy&&actionSequence===(this._actionSequence||0))this.status=result.error?'STALE | '+result.error.message:(this.items.length?'Saved states | check times below':'No entities to update.');
-    }finally{
-      if(epoch===this._epoch){this._refreshing=false;this.resumeRefresh();}
-    }
-  },
-  resumeRefresh(){
-    if(this._refreshAgain&&!this._actionBusy&&!this._refreshing){const force=this._forceAgain;this._refreshAgain=false;this._forceAgain=false;this.refresh(force);}
-  },
-  async power(index,service){
-    if(this._actionBusy||!this._client||!this._visible||Date.now()-(this._lastTap||0)<1000)return;
-    const entity=this._shown[Number(index)];if(!entity)return;this._lastTap=Date.now();this._actionSequence=(this._actionSequence||0)+1;this._actionBusy=true;this._actionId=entity.id;const epoch=this._epoch,api=this._client,cache=this._cache;cache.invalidate(entity.id);this.status='Sending...';
-    try{
-      const before=await api.state(entity.id);if(!this._visible||epoch!==this._epoch)return;
-      const action=commands(entity,before).find(c=>c.service===service&&c.brightness===undefined);if(!action)throw new Error('Action unavailable.');
-      const result=await execute(api,entity,action,before,{active:()=>this._visible&&epoch===this._epoch,delay:ms=>new Promise(resolve=>{this._delayResolve=resolve;this._delay=setTimeout(()=>{this._delay=null;this._delayResolve=null;resolve();},ms);})});
-      if(!this._visible||epoch!==this._epoch)return;cache.put(entity.id,result.state);if(!result.confirmed)cache.fail(entity.id,result.message,cache.version(entity.id));this.render();this.status=result.message;
-    }catch(error){if(this._visible&&epoch===this._epoch){cache.fail(entity.id,error.message,cache.version(entity.id));this.render();this.status=error.message;}}
-    finally{if(epoch===this._epoch){this._actionBusy=false;this.resumeRefresh();}}
-  },
-  detail(idx){const e=this._shown&&this._shown[Number(idx)];if(e)router.push({uri:'pages/detail',params:{entityId:e.id}});},
+  cycleFilter(){if(!this._visible||!this._groups)return;this.filter=(this.filter+1)%this._groups.length;this.render();},
+  detail(idx){if(!this._visible)return;const e=this._shown&&this._shown[Number(idx)];if(e)router.push({uri:'pages/detail',params:{entityId:e.id}});},
   sync(){router.push({uri:'pages/receive'});},settings(){router.push({uri:'pages/settings'});},
-  stop(){this._visible=false;this._epoch=(this._epoch||0)+1;this._refreshing=false;this._actionBusy=false;this._refreshAgain=false;this._forceAgain=false;if(this._renderTimer)clearTimeout(this._renderTimer);this._renderTimer=null;if(this._poll)clearInterval(this._poll);this._poll=null;if(this._client)this._client.close();this._client=null;if(this._delay)clearTimeout(this._delay);if(this._delayResolve)this._delayResolve();this._delay=null;this._delayResolve=null;},
+  stop(){this._visible=false;this._epoch=(this._epoch||0)+1;},
   onHide(){this.stop();},onDestroy(){this.stop();}
 };
 </script>
 <style>
 .page { width:432px; height:514px; padding:18px 20px; flex-direction:column; background-color:#090f19; }
-.row { width:392px; height:58px; flex-direction:row; justify-content:space-between; align-items:center; }
-.title { font-size:30px; color:#f8fafc; }
-.small { width:78px; height:50px; border-radius:16px; font-size:21px; color:#f8fafc; background-color:#243247; }
-.tab { width:148px; height:50px; border-radius:16px; font-size:21px; color:#7dd3fc; background-color:#14283c; }
-.status { width:392px; height:64px; color:#94a3b8; font-size:20px; }
-.list { width:392px; height:296px; }
-.card { width:392px; margin-bottom:10px; padding:12px; border-radius:20px; background-color:#142132; flex-direction:column; }
-.card-top { width:368px; height:120px; flex-direction:row; align-items:center; }
-.power-row { width:368px; height:56px; flex-direction:row; justify-content:space-between; }
-.power { width:178px; height:52px; border-radius:16px; font-size:23px; color:#f8fafc; background-color:#075985; }
-.glyph { width:32px; height:32px; margin-right:8px; }
-.entity { width:240px; flex-direction:column; }
-.name { width:235px; height:32px; font-size:25px; color:#f8fafc; lines:1; text-overflow:ellipsis; }
-.meta { width:235px; height:26px; font-size:18px; color:#94a3b8; lines:1; text-overflow:ellipsis; }
-.state { width:235px; height:30px; font-size:23px; color:#38bdf8; lines:1; text-overflow:ellipsis; }
-.checked { width:235px; height:24px; font-size:18px; color:#94a3b8; lines:1; text-overflow:ellipsis; }
-.open { width:76px; height:64px; border-radius:20px; font-size:21px; color:#f8fafc; background-color:#075985; }
+.row { width:392px; height:54px; flex-direction:row; justify-content:space-between; align-items:center; }
+.title { width:216px; font-size:28px; color:#f8fafc; }
+.small { width:78px; height:48px; border-radius:16px; font-size:21px; color:#f8fafc; background-color:#243247; }
+.filters { width:392px; height:52px; flex-direction:row; align-items:center; justify-content:space-between; }
+.tab { width:252px; height:46px; border-radius:16px; font-size:22px; color:#7dd3fc; background-color:#14283c; }
+.count { width:120px; font-size:21px; color:#cbd5e1; text-align:right; }
+.hint { width:392px; height:32px; color:#94a3b8; font-size:19px; }
+.list { width:392px; height:340px; }
+.card { width:392px; height:136px; margin-bottom:10px; padding:14px; border-radius:20px; background-color:#142132; flex-direction:row; align-items:center; }
+.glyph { width:48px; height:48px; margin-right:12px; }
+.entity { width:276px; flex-direction:column; }
+.kind { width:276px; height:24px; font-size:19px; color:#7dd3fc; lines:1; text-overflow:ellipsis; }
+.name { width:276px; height:62px; font-size:26px; color:#f8fafc; lines:2; text-overflow:ellipsis; }
+.group { width:276px; height:22px; font-size:18px; color:#94a3b8; lines:1; text-overflow:ellipsis; }
+.arrow { width:24px; font-size:28px; color:#7dd3fc; text-align:right; }
 .empty { width:392px; height:150px; font-size:25px; color:#cbd5e1; }
 </style>

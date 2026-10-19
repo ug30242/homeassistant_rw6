@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHaClient} from '../src/common/ha-client.js';
-import {validateConfig,displayName,validUrl} from '../src/common/config.js';
+import {validateConfig,displayName,validUrl,entityKind,iconPath} from '../src/common/config.js';
 import {commands,execute} from '../src/common/entities.js';
 import {utf8,fromUtf8,checksum,base64,unbase64} from '../src/common/codec.js';
 import {config} from './helpers.mjs';
@@ -15,7 +15,7 @@ test('schema validates URL, domains, token size, duplicate IDs and text limits',
   assert.equal(validUrl('https://ha.example.test/base///',false),'https://ha.example.test/base');
   for(const url of ['http://ha.test','https://user:pass@ha.test','https://ha.test?token=x','https://ha.test/#x','https://ha.test:99999','https://ha.test\\evil'])assert.throws(()=>validUrl(url,false));
   assert.equal(validUrl('http://192.168.1.2:8123',true),'http://192.168.1.2:8123');
-  assert.equal(displayName(config().entities[0]),'living room');assert.equal(displayName({id:'sensor.temp',name:'Temperature'}),'Temperature');
+  assert.equal(displayName(config().entities[0]),'Living room');assert.equal(displayName({id:'sensor.temp',name:'Temperature'}),'Temperature');
   for(const value of [config({token:'bad\nheader'}),config({token:'x'.repeat(4097)}),config({entities:[...config().entities,...config().entities]}),config({entities:[{...config().entities[0],id:'climate.home'}]})])assert.throws(()=>validateConfig(value));
 });
 test('watch uses direct authenticated GET/POST paths and fetches actual state',async()=>{
@@ -55,4 +55,16 @@ test('service acceptance alone is unconfirmed; scene/script require changed exec
     assert.equal((await execute(client,e,commands(e,b)[0],b)).confirmed,true);
   }
   await assert.rejects(execute(client,entity,{service:'toggle'},before),/unavailable/);
+});
+
+test('watch card labels retain readable names and identify the actual domain with custom icons',()=>{
+  assert.equal(displayName({id:'light.living_room',name:'  Living   room  '}),'Living room');
+  assert.equal(displayName({id:'sensor.temp__upstairs',name:'위층 온도'}),'Temp upstairs');
+  assert.equal(displayName({id:'switch.desk',name:'  '}),'Desk');
+  assert.equal(displayName({id:'sensor.___',name:''}),'Sensor.___');
+  const labels={light:'Light',switch:'Switch',fan:'Fan',cover:'Cover',sensor:'Sensor',scene:'Scene',script:'Script'};
+  for(const [domain,label] of Object.entries(labels)){
+    assert.equal(entityKind({id:domain+'.test',icon:'mdi:lightbulb'}),label);
+    assert.equal(iconPath({id:domain+'.test',icon:'unrecognized'}),'/common/icons/'+domain+'.png');
+  }
 });
