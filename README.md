@@ -15,7 +15,7 @@ flowchart LR
 
 워치 설정 저장 후 Android 관리앱을 종료할 수 있도록 구현했습니다. Mi Fitness가 제공하는 네트워크 경로는 필요할 수 있습니다. 별도 서버·클라우드 중계·Android 상주 서비스는 없습니다.
 
-**v0.1.1은 실기기 검증 전 사전 릴리즈입니다.** 중국 내수 펌웨어의 fetch/TLS/Authorization, Mi Fitness 왕복 통신, Android 강제 종료 후 동작은 실제 기기에서 확인해야 합니다. 자동 테스트 통과가 이를 증명하지는 않습니다. [검증표](docs/validation.ko.md)를 먼저 확인하세요.
+**v0.1.2은 실기기 검증 전 사전 릴리즈입니다.** 중국 내수 펌웨어의 fetch/TLS/Authorization, Mi Fitness 왕복 통신, Android 강제 종료 후 동작은 실제 기기에서 확인해야 합니다. 자동 테스트 통과가 이를 증명하지는 않습니다. [검증표](docs/validation.ko.md)를 먼저 확인하세요.
 
 ## 기능
 
@@ -44,7 +44,7 @@ Node 24, JDK 21, Android SDK 35 / Build-Tools 35.0.0을 사용합니다.
 npm ci
 npm test
 npm run build
-npm run smoke:rpk -- dist/com.vela.rw6ha.debug.0.1.1.rpk
+npm run smoke:rpk -- dist/com.vela.rw6ha.debug.0.1.2.rpk
 cd android
 ./gradlew --no-daemon :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease
 cd ..

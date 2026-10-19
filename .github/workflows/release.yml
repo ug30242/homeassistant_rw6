@@ -7,7 +7,7 @@ on:
       tag:
         description: Existing version tag
         required: true
-        default: v0.1.1
+        default: v0.1.2
 permissions:
   contents: write
 jobs:
@@ -40,6 +40,42 @@ jobs:
           npm run build
           npm run verify:rpk -- dist/*.debug.*.rpk
           npm run smoke:rpk -- dist/*.debug.*.rpk
+      - name: Select signed payload source
+        id: payload
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "v$(node -p 'require("./package.json").version')" = "$RELEASE_TAG"
+          test -s "releases/$RELEASE_TAG/NOTES.md"
+          if compgen -G "releases/$RELEASE_TAG/*.apk" >/dev/null || compgen -G "releases/$RELEASE_TAG/*.rpk" >/dev/null || test -f "releases/$RELEASE_TAG/SHA256SUMS"; then
+            test -f "releases/$RELEASE_TAG/SHA256SUMS"
+            test -f "releases/$RELEASE_TAG/rw6-ha-android-${RELEASE_TAG#v}.apk"
+            test -f "releases/$RELEASE_TAG/com.vela.rw6ha.release.${RELEASE_TAG#v}.rpk"
+            echo 'prebuilt=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'prebuilt=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Load existing protected signing identity
+        if: steps.payload.outputs.prebuilt == 'false'
+        run: node scripts/load-signing.cjs
+        env:
+          HA_RELEASE_PRIVATE_KEY_PEM: ${{ secrets.HA_RELEASE_PRIVATE_KEY_PEM }}
+          HA_RELEASE_CERTIFICATE_PEM: ${{ secrets.HA_RELEASE_CERTIFICATE_PEM }}
+      - name: Build and stage signed installable pair
+        if: steps.payload.outputs.prebuilt == 'false'
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          npm run release
+          bash scripts/sign-apk.sh
+          cp "dist/rw6-ha-android-${RELEASE_TAG#v}.apk" "releases/$RELEASE_TAG/"
+          cp "dist/com.vela.rw6ha.release.${RELEASE_TAG#v}.rpk" "releases/$RELEASE_TAG/"
+          cp THIRD_PARTY_NOTICES.txt "releases/$RELEASE_TAG/THIRD_PARTY_NOTICES.txt"
+          cd "releases/$RELEASE_TAG"
+          sha256sum *.apk *.rpk THIRD_PARTY_NOTICES.txt > SHA256SUMS
       - name: Verify exact signed release payload
         env:
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
@@ -67,6 +103,9 @@ jobs:
             "releases/$RELEASE_TAG/SHA256SUMS" "releases/$RELEASE_TAG/THIRD_PARTY_NOTICES.txt" \
             --verify-tag --prerelease --title "Redmi Watch 6 Home Assistant $RELEASE_TAG" \
             --notes-file "releases/$RELEASE_TAG/NOTES.md"
+      - name: Remove private signing files
+        if: always()
+        run: rm -rf sign/release
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

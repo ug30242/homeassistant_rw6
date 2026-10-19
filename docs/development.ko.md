@@ -57,7 +57,7 @@ npm run verify:apk -- dist/rw6-ha-android-0.1.1.apk
 ## GitHub Actions
 
 - `ci.yml`: main push/PR에서 JS 테스트, RPK 자동 빌드·컴파일 코드 smoke, Android APK 자동 빌드·테스트·Lint, Java/워치 interop, 배포 파일의 서명·체크섬 검사. 업로드되는 unsigned APK/debug RPK는 개발 검증용입니다.
-- `release.yml`: 버전 태그 push 시 두 앱을 빌드·테스트하고, `releases/<tag>`의 사전 서명된 정확한 APK/RPK와 SHA256을 검증한 뒤 GitHub Release로 게시. 기존 릴리즈는 덮어쓰지 않음. 최초 릴리즈는 하드웨어 미검증 사전 릴리즈로 표시.
+- `release.yml`: 버전 태그 push 시 두 앱을 빌드·테스트하고 GitHub Release로 게시. `releases/<tag>`에 사전 서명된 파일이 있으면 APK/RPK 쌍·SHA256 전체를 요구하고 검증. 파일 없이 NOTES.md만 있으면 GitHub Secrets의 기존 키로 빌드·서명하고 SHA256을 생성한 뒤 인증서·버전·compiled smoke를 검증. 키 누락·불일치 시 게시를 중단하며 개인키는 종료 시 제거. 기존 릴리즈는 덮어쓰지 않으며 하드웨어 미검증 사전 릴리즈로 표시.
 - `rebuild-signed.yml`: 수동 실행으로 GitHub Secrets에서 같은 키를 읽어 APK/RPK를 자동 재서명하고 installable pair 아티팩트를 생성. 개인키는 업로드되지 않으며 마지막 단계에서 삭제.
 
 Secrets 이름:
@@ -69,4 +69,4 @@ Secrets 이름:
 
 이 세션에서는 Secrets 쓰기 기능을 사용할 수 없어 자동 등록하지 않았습니다. **초기 릴리즈는 로컬에서 서명한 설치 파일로 게시할 수 있으며 Secrets가 없어도 CI·릴리즈 검증과 배포가 가능합니다.** 향후 클라우드 재서명에는 Secrets 등록이 필요합니다. `load-signing.cjs`는 Secrets 인증서와 커밋된 공개 인증서, 개인키의 공개키가 일치하는지 검사합니다.
 
-버전 변경 시 `package.json` version과 `src/manifest.json` versionName/versionCode를 함께 갱신하고, 같은 소스에서 새 쌍을 빌드·검증한 뒤 `releases/vX.Y.Z`에 설치 파일·NOTES·THIRD_PARTY_NOTICES·SHA256SUMS를 커밋합니다. main push 후 같은 커밋에 `vX.Y.Z` 태그를 push하면 릴리즈 워크플로가 동작합니다. 개인키나 실제 Home Assistant 토큰을 커밋하지 마세요.
+버전 변경 시 `package.json`·`package-lock.json` version과 `src/manifest.json` versionName/versionCode를 함께 갱신하고, 같은 소스에서 새 쌍을 빌드·검증한 뒤 `releases/vX.Y.Z`에 설치 파일·NOTES·THIRD_PARTY_NOTICES·SHA256SUMS를 커밋합니다. GitHub Secrets로 CI에서 서명할 때는 NOTES.md만 커밋하고 설치 파일 생성·검증은 태그 릴리즈 워크플로에서 수행할 수 있습니다. main push 후 같은 커밋에 `vX.Y.Z` 태그를 push하면 릴리즈 워크플로가 동작합니다. 개인키나 실제 Home Assistant 토큰을 커밋하지 마세요.

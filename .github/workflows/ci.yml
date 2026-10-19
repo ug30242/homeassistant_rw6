@@ -34,6 +34,13 @@ jobs:
       - name: Verify published installable pair
         run: |
           version=$(node -p 'require("./package.json").version')
+          # New releases are signed from repository Secrets by the tag workflow.
+          # If any prebuilt payload is committed, require the complete verified pair.
+          if ! compgen -G "releases/v$version/*.apk" >/dev/null && ! compgen -G "releases/v$version/*.rpk" >/dev/null && ! test -f "releases/v$version/SHA256SUMS"; then
+            test -s "releases/v$version/NOTES.md"
+            echo 'Installable pair will be signed and verified by the release workflow.'
+            exit 0
+          fi
           npm run verify:rpk -- "releases/v$version/"*.rpk
           npm run smoke:rpk -- "releases/v$version/"*.rpk
           npm run verify:apk -- "releases/v$version/"*.apk
