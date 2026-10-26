@@ -1,56 +1,30 @@
 # Redmi Watch 6 · Home Assistant
 
-중국 내수판 Redmi Watch 6용 Home Assistant 직접 제어 앱입니다. **Android는 설정 관리·XMS 동기화만 담당하며, 워치의 API 요청을 중계하지 않습니다.**
+중국 내수판 **Redmi Watch 6에서 Home Assistant 기기의 상태를 확인하고 제어하는 앱**입니다. Android 앱에서 사용할 기기와 즐겨찾기를 설정하고 워치로 동기화합니다.
 
-[설치 파일 / Releases](https://github.com/ug30242/homeassistant_rw6/releases) · [설치·설정 가이드](docs/setup.ko.md) · [실기기 검증표](docs/validation.ko.md) · [개발·서명](docs/development.ko.md)
+**[설치 파일 다운로드](https://github.com/ug30242/homeassistant_rw6/releases)** · [설치·설정 가이드](docs/setup.ko.md)
 
-## 구성
+## 주요 기능
 
-```mermaid
-flowchart LR
-  A[Android 설정 관리자] -->|수동 설정 전송 / 저장 ACK| M[Mi Fitness XMS]
-  M --> W[Redmi Watch 6 / 로컬 설정]
-  W -->|system.fetch / Bearer / GET·POST| H[Home Assistant REST API]
-```
+- **워치:** 즐겨찾기·전체·그룹별 카드 목록을 제공합니다. 목록에서는 통신 없이 카드만 표시하고, 카드를 누른 상세화면에서 상태를 조회하고 제어합니다.
+- **기기 제어:** 조명·스위치·팬·커튼, 센서 상태 확인, 장면·스크립트 실행을 지원합니다. 밝기·커튼 위치 등은 해당 기기가 지원하는 경우 사용할 수 있습니다.
+- **Android 설정:** 기기 검색·선택, 도메인별 선택 개수 확인, 선택목록 검토, 이름·아이콘·즐겨찾기·그룹·순서 편집을 지원합니다. 최대 80개를 선택할 수 있습니다.
+- **상태 갱신:** 상세화면에서 수동으로 새로고침하거나 30·60·120초 자동 갱신을 설정할 수 있습니다. 화면을 나가면 자동 갱신은 중지됩니다.
 
-워치 설정 저장 후 Android 관리앱을 종료할 수 있도록 구현했습니다. Mi Fitness가 제공하는 네트워크 경로는 필요할 수 있습니다. 별도 서버·클라우드 중계·Android 상주 서비스는 없습니다.
+## 설치와 사용
 
-**v0.1.3은 실기기 검증 전 사전 릴리즈입니다.** 중국 내수 펌웨어의 fetch/TLS/Authorization, Mi Fitness 왕복 통신, Android 강제 종료 후 동작은 실제 기기에서 확인해야 합니다. 자동 테스트 통과가 이를 증명하지는 않습니다. [검증표](docs/validation.ko.md)를 먼저 확인하세요.
+1. 같은 릴리즈의 **APK와 RPK를 모두** 다운로드합니다.
+2. APK는 Android에, RPK는 Notify for Xiaomi를 이용해 워치에 설치합니다.
+3. Android 앱에서 Home Assistant 서버 주소와 토큰을 저장하고, 사용할 기기를 선택합니다.
+4. 워치의 `Sync` 화면을 연 뒤 Android의 `워치` 탭에서 전체 설정을 동기화합니다.
+5. 워치에서 카드를 눌러 상태를 확인하고 기기를 제어합니다.
 
-## 기능
+설정을 변경한 뒤에는 다시 동기화해야 합니다. 워치에 저장이 완료되면 Android 관리 앱은 종료해도 됩니다. **Mi Fitness와 워치의 연결은 유지해야 합니다.**
 
-- Android 8.0 이상: 한국어 UI, 서버 연결 테스트, Keystore AES-GCM 암호화 저장, 엔티티 자동 조회·검색·도메인별 전체/선택 개수·다중 선택, 선택목록 전용 검토 화면에서 이름·아이콘·즐겨찾기·그룹·순서 편집.
-- 워치 432×514: 큰 아이콘·종류·두 줄 이름의 즐겨찾기·전체·그룹 카드 목록. 카드 터치 후 상세화면에서 상태 조회·켜기/끄기·상세 제어·오류 표시. GET/POST 네트워크 테스트와 자격 증명 삭제. 기본 UI는 ASCII 영어이며 한글 이름은 entity_id 기반으로 대체합니다.
-- `light`, `switch`, `fan`, `cover`, `sensor`, `scene`, `script` 지원. 센서는 읽기 전용, 밝기·커튼 위치·정지는 엔티티 기능 비트에 따라 표시합니다.
-- 설정 최대 80개 / 48 KiB, 768바이트 단위 분할·ACK·재시도·CRC32·버전 검사. 전체 교체로 삭제를 반영하고, 이중 저장 슬롯과 읽기 확인 후에만 저장 완료 응답을 보냅니다.
-- 메인 목록은 저장된 카드만 표시하며 상태 조회·자동 갱신·제어 요청을 하지 않습니다. 카드를 누른 상세화면에서 실제 상태를 조회하고 제어합니다. 선택한 30/60/120초 자동 갱신도 활성 상세화면에만 적용됩니다.
-- Android `선택목록` 탭에서 전체 선택 항목과 워치 이름 미리보기를 확인하고, 이름·ID·그룹 검색 및 도메인·즐겨찾기 필터를 적용합니다. `즐겨찾기 · 워치 Favorites`를 변경한 뒤 `워치` 탭에서 전체 설정을 동기화합니다. 제어 결과를 확인하지 못하면 `unconfirmed`로 표시합니다.
+## 사용 전 확인
 
-## 설치 요약
+- 중국 내수판 Redmi Watch 6, Android 8.0 이상을 대상으로 합니다.
+- 워치 UI는 영어이며, 한글 기기 이름은 영문 ID를 바탕으로 대체 표시합니다. Android의 `선택목록`에서 워치에 표시될 이름을 미리 확인할 수 있습니다.
+- 현재 사전 릴리즈입니다. 펌웨어·Mi Fitness 조합에 따른 통신과 실제 화면 동작은 [실기기 검증표](docs/validation.ko.md)를 확인하세요.
 
-1. 같은 릴리즈의 `rw6-ha-android-*.apk`와 `com.vela.rw6ha.release.*.rpk`를 받습니다.
-2. APK를 Android에, RPK를 Notify for Xiaomi로 워치에 설치합니다. Mi Fitness와 워치 연결은 유지합니다.
-3. Android에서 서버와 토큰 저장 → 연결 테스트 → 엔티티 조회·선택·편집.
-4. 워치 `Sync` 화면을 열고 Android `워치` 탭에서 연결·권한 허용·동기화를 실행합니다.
-5. **워치 저장 응답 확인** 후 워치 `Info`에서 GET/POST 테스트를 합니다. Android를 강제 종료하고 반복합니다.
-
-APK와 RPK의 패키지는 모두 `com.vela.rw6ha`이며 같은 새 인증서로 서명합니다. 기존 `com.vela.rw6totp` 앱·서명·저장소와 독립적입니다. 서명 개인키는 Git에 포함하지 않습니다.
-
-## 개발
-
-Node 24, JDK 21, Android SDK 35 / Build-Tools 35.0.0을 사용합니다.
-
-```sh
-npm ci
-npm test
-npm run build
-npm run smoke:rpk -- dist/com.vela.rw6ha.debug.0.1.3.rpk
-cd android
-./gradlew --no-daemon :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease
-cd ..
-npm run test:interop
-```
-
-신규 버전의 서명된 설치 파일이 없으면 GitHub Secrets로 Actions에서 태그 소스를 직접 빌드·서명해 릴리즈합니다. APK/RPK를 로컬에서 만들거나 소스에 커밋할 필요가 없습니다. 빌드·서명·GitHub Secrets·자동 릴리즈 운영은 [개발 가이드](docs/development.ko.md)에 있습니다. 서명되지 않은 CI APK와 개발용 RPK는 릴리즈 설치 파일의 대체물이 아닙니다.
-
-XMS·저장소·RPK 검증 코드의 출처와 실제 검증 범위: [TOTP 분석 기록](docs/reference-analysis.ko.md), [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
+자세한 내용: [설치·설정](docs/setup.ko.md) · [개발 문서](docs/development.ko.md) · [오픈소스 고지](THIRD_PARTY_NOTICES.txt)
